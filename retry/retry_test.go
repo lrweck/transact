@@ -3,6 +3,7 @@ package transactretry
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -59,7 +60,7 @@ func TestNewStopsWhenRetryIfSaysNo(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
 	err := transact.Run(context.Background(), b, func(fakeTx) error { return boom },
-		New(WithMaxAttempts(5), WithRetryIf(func(error) bool { return false })))
+		New(WithMaxAttempts(5), WithRetryIf(func(error, int) bool { return false })))
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
 	}
@@ -68,27 +69,45 @@ func TestNewStopsWhenRetryIfSaysNo(t *testing.T) {
 	}
 }
 
-func TestNewRetriesWhenAnyMatcherSaysYes(t *testing.T) {
-	no := func(error) bool { return false }
-	yes := func(error) bool { return true }
-	for _, opts := range [][]RetryOption{
-		{WithRetryIf(no), WithRetryIf(yes)},
-		{WithRetryIf(yes), WithRetryIf(no)},
-	} {
-		b := &fakeBeginner{}
-		boom := errors.New("boom")
-		err := transact.Run(context.Background(), b, func(fakeTx) error { return boom },
-			New(append([]RetryOption{WithMaxAttempts(2)}, opts...)...))
-		if !errors.Is(err, boom) {
-			t.Fatalf("err = %v, want boom", err)
-		}
-		if b.begins != 2 {
-			t.Fatalf("begins = %d, want 2", b.begins)
-		}
+func TestNewLastMatcherWins(t *testing.T) {
+	b := &fakeBeginner{}
+	boom := errors.New("boom")
+	err := transact.Run(context.Background(), b, func(fakeTx) error { return boom },
+		New(WithMaxAttempts(3),
+			WithRetryIf(func(error, int) bool { return true }),
+			WithRetryIf(func(error, int) bool { return false })))
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want boom", err)
+	}
+	if b.begins != 1 {
+		t.Fatalf("begins = %d, want 1", b.begins)
 	}
 }
 
-func TestNewIgnoresNilMatcher(t *testing.T) {
+func TestNewMatcherSeesTryNumber(t *testing.T) {
+	b := &fakeBeginner{}
+	boom := errors.New("boom")
+	left := 1
+	var seen []int
+	err := transact.Run(context.Background(), b, func(fakeTx) error {
+		if left > 0 {
+			left--
+			return boom
+		}
+		return nil
+	}, New(WithMaxAttempts(3), WithRetryIf(func(_ error, try int) bool {
+		seen = append(seen, try)
+		return true
+	})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []int{1}; !slices.Equal(seen, want) {
+		t.Fatalf("seen = %v, want %v", seen, want)
+	}
+}
+
+func TestNewNilMatcherRetriesAll(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
 	err := transact.Run(context.Background(), b, func(fakeTx) error { return boom },
@@ -97,7 +116,7 @@ func TestNewIgnoresNilMatcher(t *testing.T) {
 		t.Fatalf("err = %v, want boom", err)
 	}
 	if b.begins != 2 {
-		t.Fatalf("begins = %d, want 2 (nil matcher ignored, retries all)", b.begins)
+		t.Fatalf("begins = %d, want 2", b.begins)
 	}
 }
 

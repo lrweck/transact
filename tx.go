@@ -83,7 +83,7 @@ func runRetry[T Tx](ctx context.Context, b Beginner[T], fn func(T) error, o Opti
 		if tries == max {
 			break
 		}
-		if p.RetryIf != nil && !p.RetryIf(err) {
+		if p.RetryIf != nil && !p.RetryIf(err, tries) {
 			break
 		}
 		if werr := sleepCtx(ctx, wait(p, tries)); werr != nil {

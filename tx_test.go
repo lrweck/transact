@@ -233,7 +233,7 @@ func TestRunRetryStopsWhenRetryIfSaysNo(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
 	err := Run(context.Background(), b, func(fakeTx) error { return boom },
-		WithRetry(RetryPolicy{MaxAttempts: 5, RetryIf: func(error) bool { return false }}))
+		WithRetry(RetryPolicy{MaxAttempts: 5, RetryIf: func(error, int) bool { return false }}))
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
 	}
@@ -251,6 +251,29 @@ func TestRunRetryZeroPolicyMeansOneTry(t *testing.T) {
 	}
 	if n := countBegins(b.log); n != 1 {
 		t.Fatalf("begins = %d, want 1 (log %v)", n, b.log)
+	}
+}
+
+func TestRunRetryIfSeesTryNumber(t *testing.T) {
+	b := &fakeBeginner{}
+	boom := errors.New("boom")
+	left := 2
+	var seen []int
+	err := Run(context.Background(), b, func(fakeTx) error {
+		if left > 0 {
+			left--
+			return boom
+		}
+		return nil
+	}, WithRetry(RetryPolicy{MaxAttempts: 3, RetryIf: func(_ error, try int) bool {
+		seen = append(seen, try)
+		return true
+	}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []int{1, 2}; !slices.Equal(seen, want) {
+		t.Fatalf("seen = %v, want %v", seen, want)
 	}
 }
 

@@ -114,9 +114,10 @@ type RetryPolicy struct {
 	// Zero or less means no limit.
 	TotalTimeout time.Duration
 	// RetryIf reports whether the error from a failed try is worth
-	// retrying. Nil means every error is retried. Returning false stops
-	// and returns the error.
-	RetryIf func(error) bool
+	// retrying. It gets the error and the 1-based number of the try that
+	// just failed, so it can log the attempt. Nil means every error is
+	// retried. Returning false stops and returns the error.
+	RetryIf func(err error, try int) bool
 	// Wait returns how long to hold before the next try. n is the number
 	// of failed tries so far, starting at 1. Nil means no wait.
 	Wait func(failedTries int) time.Duration

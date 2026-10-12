@@ -20,7 +20,7 @@ type policy struct {
 	maxAttempts   int
 	perTryTimeout time.Duration
 	totalTimeout  time.Duration
-	retryIfs      []func(error) bool
+	retryIf       func(error, int) bool
 	backoff       Backoff
 	jitterMin     time.Duration
 	jitterMax     time.Duration
@@ -44,15 +44,11 @@ func WithTotalTimeout(d time.Duration) RetryOption {
 	return func(o *policy) { o.totalTimeout = d }
 }
 
-// WithRetryIf adds a matcher for retryable errors. Each call adds another
-// matcher: a failed try is retried when any matcher says so. With no
-// matchers, every error is retried. Nil funcs are ignored.
-func WithRetryIf(f func(error) bool) RetryOption {
-	return func(o *policy) {
-		if f != nil {
-			o.retryIfs = append(o.retryIfs, f)
-		}
-	}
+// WithRetryIf sets the matcher for retryable errors. The last call wins.
+// The matcher gets the error and the 1-based number of the try that just
+// failed, so it can log the attempt. Nil retries every error.
+func WithRetryIf(f func(error, int) bool) RetryOption {
+	return func(o *policy) { o.retryIf = f }
 }
 
 // Backoff returns how long to wait before the next try.
@@ -110,25 +106,9 @@ func New(opts ...RetryOption) transact.Options {
 		MaxAttempts:   p.maxAttempts,
 		PerTryTimeout: p.perTryTimeout,
 		TotalTimeout:  p.totalTimeout,
-		RetryIf:       composeRetryIf(p.retryIfs),
+		RetryIf:       p.retryIf,
 		Wait:          composeWait(p.backoff, p.jitterMin, p.jitterMax),
 	})
-}
-
-// composeRetryIf ORs matchers into one. It returns nil when there are none,
-// which retries every error.
-func composeRetryIf(fs []func(error) bool) func(error) bool {
-	if len(fs) == 0 {
-		return nil
-	}
-	return func(err error) bool {
-		for _, f := range fs {
-			if f(err) {
-				return true
-			}
-		}
-		return false
-	}
 }
 
 // composeWait merges a strategy with jitter into one wait func.
