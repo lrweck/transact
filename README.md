@@ -67,9 +67,7 @@ m := transactsqlite.New(db)
 ```go
 import transactretry "github.com/lrweck/transact/retry"
 
-err := transactretry.Run(ctx, r.Manager, func(ctx context.Context, tx transactpgx.Tx) error {
-    return gen.New(tx).Insert(ctx, ...)
-},
+err := transactretry.New(r.Manager,
     transactretry.WithMaxAttempts(5),
     transactretry.WithPerTryTimeout(2*time.Second),  // each try gets a context with this timeout
     transactretry.WithTotalTimeout(30*time.Second),  // all tries together
@@ -77,7 +75,9 @@ err := transactretry.Run(ctx, r.Manager, func(ctx context.Context, tx transactpg
     transactretry.WithBackoff(transactretry.ExponentialBackoff(100*time.Millisecond)),
     transactretry.WithJitter(100*time.Millisecond, 2*time.Second),
     transactretry.WithTxOptions(transact.WithIsoLevel(transact.LevelSerializable)),
-)
+).Run(ctx, func(ctx context.Context, tx transactpgx.Tx) error {
+    return gen.New(tx).Insert(ctx, ...)
+})
 ```
 
 Each try runs through `transact.Run`, so a failed try is rolled back before the next one starts. The callback gets the try context: use it for queries so `PerTryTimeout` can stop a slow try. A panic rolls back and panics again without retry. `Manager` works here because it is a `Beginner`.

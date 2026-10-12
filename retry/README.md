@@ -5,17 +5,34 @@ Retries failed transactions. Each try runs through `transact.Run`, so a failed t
 ```go
 import transactretry "github.com/lrweck/transact/retry"
 
-err := transactretry.Run(ctx, manager, func(ctx context.Context, tx transactpgx.Tx) error {
-    return gen.New(tx).Insert(ctx, ...)
-},
-    transactretry.WithMaxAttempts(5),
-    transactretry.WithPerTryTimeout(2*time.Second),
-    transactretry.WithTotalTimeout(30*time.Second),
-    transactretry.WithRetryIf(func(err error) bool { return isTransient(err) }),
-    transactretry.WithBackoff(transactretry.ExponentialBackoff(100*time.Millisecond)),
-    transactretry.WithJitter(100*time.Millisecond, 2*time.Second),
-    transactretry.WithTxOptions(transact.WithIsoLevel(transact.LevelSerializable)),
-)
+type Repo struct {
+    *transactretry.Manager[transactpgx.Tx] // embed to get Run
+    q *gen.Queries
+}
+
+func NewRepo(m *transactpgx.Manager) *Repo {
+    return &Repo{
+        Manager: transactretry.New(m,
+            transactretry.WithMaxAttempts(5),
+            transactretry.WithPerTryTimeout(2*time.Second),
+            transactretry.WithTotalTimeout(30*time.Second),
+            transactretry.WithRetryIf(func(err error) bool { return isTransient(err) }),
+            transactretry.WithBackoff(transactretry.ExponentialBackoff(100*time.Millisecond)),
+            transactretry.WithJitter(100*time.Millisecond, 2*time.Second),
+            transactretry.WithTxOptions(transact.WithIsoLevel(transact.LevelSerializable)),
+        ),
+        q: gen.New(...),
+    }
+}
+
+func (r *Repo) Insert(ctx context.Context, ...) error {
+    return r.Run(ctx, func(ctx context.Context, tx transactpgx.Tx) error {
+        return gen.New(tx).Insert(ctx, ...)
+    })
+}
+```
+
+`New` takes any `transact.Beginner`, like an adapter `Manager`, and the options are defaults. Options passed to `Run` replace the defaults for that call. A one-shot `transactretry.Run(ctx, beginner, fn, opts...)` exists for single use.
 ```
 
 ## Policy
