@@ -7,20 +7,34 @@ import (
 	"testing"
 )
 
-type fakeTx struct{ log *[]string }
+type fakeTx struct {
+	log       *[]string
+	commitErr error
+}
 
-func (f fakeTx) Commit(context.Context) error   { *f.log = append(*f.log, "commit"); return nil }
+func (f fakeTx) Commit(context.Context) error {
+	*f.log = append(*f.log, "commit")
+	return f.commitErr
+}
 func (f fakeTx) Rollback(context.Context) error { *f.log = append(*f.log, "rollback"); return nil }
 
 type fakeBeginner struct {
-	log  []string
-	opts Options
+	log      []string
+	opts     Options
+	beginTx  fakeTx
+	beginErr error
 }
 
 func (b *fakeBeginner) Begin(_ context.Context, o Options) (fakeTx, error) {
+	if b.beginErr != nil {
+		return fakeTx{}, b.beginErr
+	}
 	b.opts = o
 	b.log = append(b.log, "begin")
-	return fakeTx{&b.log}, nil
+	if b.beginTx.log == nil {
+		b.beginTx.log = &b.log
+	}
+	return b.beginTx, nil
 }
 
 func TestRunCommitsOnSuccess(t *testing.T) {
@@ -86,6 +100,31 @@ func TestRunNestsOnTx(t *testing.T) {
 type beginFn func() (spTx, error)
 
 func (f beginFn) Begin(context.Context, Options) (spTx, error) { return f() }
+
+func TestRunReturnsBeginErrorWithoutCallingFn(t *testing.T) {
+	b := &fakeBeginner{beginErr: errors.New("no conn")}
+	called := false
+	err := Run(context.Background(), b, func(fakeTx) error { called = true; return nil })
+	if err == nil || err.Error() != "no conn" {
+		t.Fatalf("err = %v, want no conn", err)
+	}
+	if called {
+		t.Fatal("fn called after Begin error")
+	}
+	if len(b.log) != 0 {
+		t.Fatalf("log = %v, want empty", b.log)
+	}
+}
+
+func TestRunReturnsCommitError(t *testing.T) {
+	b := &fakeBeginner{}
+	want := errors.New("commit failed")
+	b.beginTx = fakeTx{log: &b.log, commitErr: want}
+	err := Run(context.Background(), b, func(fakeTx) error { return nil })
+	if !errors.Is(err, want) {
+		t.Fatalf("err = %v, want %v", err, want)
+	}
+}
 
 func TestManagerAppliesDefaultsThenCallOptions(t *testing.T) {
 	b := &fakeBeginner{}
