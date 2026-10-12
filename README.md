@@ -74,6 +74,8 @@ err := transactretry.Run(ctx, r.Manager, func(ctx context.Context, tx transactpg
     transactretry.WithPerTryTimeout(2*time.Second),  // each try gets a context with this timeout
     transactretry.WithTotalTimeout(30*time.Second),  // all tries together
     transactretry.WithRetryIf(func(err error) bool { return isSerializationError(err) }),
+    transactretry.WithBackoff(transactretry.ExponentialBackoff(100*time.Millisecond)),
+    transactretry.WithJitter(100*time.Millisecond, 2*time.Second),
     transactretry.WithTxOptions(transact.WithIsoLevel(transact.LevelSerializable)),
 )
 ```
