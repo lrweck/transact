@@ -46,6 +46,20 @@ func TestRunRollsBackOnError(t *testing.T) {
 	}
 }
 
+func TestRunRollsBackOnPanicAndRepanics(t *testing.T) {
+	b := &fakeBeginner{}
+	defer func() {
+		if r := recover(); r != "kaboom" {
+			t.Fatalf("recover = %v, want kaboom", r)
+		}
+		if exp := []string{"begin", "rollback"}; !slices.Equal(b.log, exp) {
+			t.Fatalf("log = %v, want %v", b.log, exp)
+		}
+	}()
+	_ = Run(context.Background(), b, func(fakeTx) error { panic("kaboom") })
+	t.Fatal("expected panic")
+}
+
 func TestManagerAppliesDefaultsThenCallOptions(t *testing.T) {
 	b := &fakeBeginner{}
 	m := New[fakeTx](b, WithIsoLevel(LevelSerializable))
