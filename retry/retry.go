@@ -9,21 +9,44 @@ import (
 	"github.com/lrweck/transact"
 )
 
-// Policy controls how Run retries a failed transaction.
-type Policy struct {
-	// MaxAttempts is the total number of tries, including the first one.
-	// Values below 1 mean 1, a single try with no retry.
-	MaxAttempts int
-	// PerTryTimeout bounds each try. The callback gets a context that
-	// expires after this time. Zero or less means no limit.
-	PerTryTimeout time.Duration
-	// TotalTimeout bounds the whole operation, all tries together.
-	// Zero or less means no limit.
-	TotalTimeout time.Duration
-	// RetryIf reports whether the error from a failed try is worth
-	// retrying. Nil means every error is retried. Returning false stops
-	// and returns the error.
-	RetryIf func(error) bool
+// Option configures Run.
+type Option func(*options)
+
+type options struct {
+	maxAttempts   int
+	perTryTimeout time.Duration
+	totalTimeout  time.Duration
+	retryIf       func(error) bool
+	txOpts        []transact.Option
+}
+
+// WithMaxAttempts sets the total number of tries, including the first one.
+// Values below 1 mean 1, a single try with no retry. Default is 1.
+func WithMaxAttempts(n int) Option {
+	return func(o *options) { o.maxAttempts = n }
+}
+
+// WithPerTryTimeout bounds each try. The callback gets a context that
+// expires after this time. Zero or less means no limit.
+func WithPerTryTimeout(d time.Duration) Option {
+	return func(o *options) { o.perTryTimeout = d }
+}
+
+// WithTotalTimeout bounds the whole operation, all tries together.
+// Zero or less means no limit.
+func WithTotalTimeout(d time.Duration) Option {
+	return func(o *options) { o.totalTimeout = d }
+}
+
+// WithRetryIf sets when a failed try is worth retrying. Nil means every
+// error is retried. Returning false stops and returns the error.
+func WithRetryIf(f func(error) bool) Option {
+	return func(o *options) { o.retryIf = f }
+}
+
+// WithTxOptions passes transaction options to every try.
+func WithTxOptions(opts ...transact.Option) Option {
+	return func(o *options) { o.txOpts = append(o.txOpts, opts...) }
 }
 
 // Run starts a transaction, calls fn, and commits, retrying on failure.
@@ -31,19 +54,23 @@ type Policy struct {
 // the next one starts.
 //
 // Fn gets the try context and the transaction. Use that context for queries
-// so PerTryTimeout can stop a slow try.
+// so WithPerTryTimeout can stop a slow try.
 //
 // A panic in fn rolls back and panics again without retry. When the context
 // is done, Run stops and returns the context error. Otherwise it returns the
 // last error wrapped with the try count, so errors.Is and errors.As work.
-func Run[T transact.Tx](ctx context.Context, b transact.Beginner[T], fn func(context.Context, T) error, p Policy, txOpts ...transact.Option) error {
-	max := p.MaxAttempts
+func Run[T transact.Tx](ctx context.Context, b transact.Beginner[T], fn func(context.Context, T) error, opts ...Option) error {
+	var o options
+	for _, fn := range opts {
+		fn(&o)
+	}
+	max := o.maxAttempts
 	if max < 1 {
 		max = 1
 	}
-	if p.TotalTimeout > 0 {
+	if o.totalTimeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, p.TotalTimeout)
+		ctx, cancel = context.WithTimeout(ctx, o.totalTimeout)
 		defer cancel()
 	}
 	var err error
@@ -56,14 +83,14 @@ func Run[T transact.Tx](ctx context.Context, b transact.Beginner[T], fn func(con
 			return fmt.Errorf("transact: gave up after %d attempt(s): %w", tries, ctxErr)
 		}
 		tries++
-		err = tryOnce(ctx, b, fn, p.PerTryTimeout, txOpts)
+		err = tryOnce(ctx, b, fn, o.perTryTimeout, o.txOpts)
 		if err == nil {
 			return nil
 		}
 		if tries == max {
 			break
 		}
-		if p.RetryIf != nil && !p.RetryIf(err) {
+		if o.retryIf != nil && !o.retryIf(err) {
 			break
 		}
 	}

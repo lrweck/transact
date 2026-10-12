@@ -31,7 +31,7 @@ func (b *fakeBeginner) Begin(_ context.Context, o transact.Options) (fakeTx, err
 
 func TestRunSucceedsFirstTry(t *testing.T) {
 	b := &fakeBeginner{}
-	err := Run(context.Background(), b, func(context.Context, fakeTx) error { return nil }, Policy{MaxAttempts: 3})
+	err := Run(context.Background(), b, func(context.Context, fakeTx) error { return nil }, WithMaxAttempts(3))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestRunRetriesThenSucceeds(t *testing.T) {
 			return boom
 		}
 		return nil
-	}, Policy{MaxAttempts: 3})
+	}, WithMaxAttempts(3))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestRunRetriesThenSucceeds(t *testing.T) {
 func TestRunGivesUpWrappingLastError(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
-	err := Run(context.Background(), b, func(context.Context, fakeTx) error { return boom }, Policy{MaxAttempts: 2})
+	err := Run(context.Background(), b, func(context.Context, fakeTx) error { return boom }, WithMaxAttempts(2))
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want wrapped boom", err)
 	}
@@ -75,7 +75,7 @@ func TestRunStopsWhenRetryIfSaysNo(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
 	err := Run(context.Background(), b, func(context.Context, fakeTx) error { return boom },
-		Policy{MaxAttempts: 5, RetryIf: func(error) bool { return false }})
+		WithMaxAttempts(5), WithRetryIf(func(error) bool { return false }))
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
 	}
@@ -84,10 +84,10 @@ func TestRunStopsWhenRetryIfSaysNo(t *testing.T) {
 	}
 }
 
-func TestRunZeroAttemptsMeansOneTry(t *testing.T) {
+func TestRunDefaultsToOneTry(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
-	err := Run(context.Background(), b, func(context.Context, fakeTx) error { return boom }, Policy{})
+	err := Run(context.Background(), b, func(context.Context, fakeTx) error { return boom })
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
 	}
@@ -99,7 +99,7 @@ func TestRunZeroAttemptsMeansOneTry(t *testing.T) {
 func TestRunPassesTxOptions(t *testing.T) {
 	b := &fakeBeginner{}
 	err := Run(context.Background(), b, func(context.Context, fakeTx) error { return nil },
-		Policy{MaxAttempts: 1}, transact.WithIsoLevel(transact.LevelSerializable))
+		WithMaxAttempts(1), WithTxOptions(transact.WithIsoLevel(transact.LevelSerializable)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestRunTryContextHasDeadline(t *testing.T) {
 			t.Error("try context has no deadline")
 		}
 		return nil
-	}, Policy{MaxAttempts: 1, PerTryTimeout: time.Second})
+	}, WithMaxAttempts(1), WithPerTryTimeout(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestRunPerTryTimeoutFires(t *testing.T) {
 	err := Run(context.Background(), b, func(ctx context.Context, _ fakeTx) error {
 		<-ctx.Done()
 		return ctx.Err()
-	}, Policy{MaxAttempts: 2, PerTryTimeout: 10 * time.Millisecond, RetryIf: func(error) bool { return true }})
+	}, WithMaxAttempts(2), WithPerTryTimeout(10*time.Millisecond), WithRetryIf(func(error) bool { return true }))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -142,7 +142,7 @@ func TestRunTotalTimeoutSetsDeadline(t *testing.T) {
 			t.Error("context has no deadline")
 		}
 		return nil
-	}, Policy{MaxAttempts: 1, TotalTimeout: time.Second})
+	}, WithMaxAttempts(1), WithTotalTimeout(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestRunStopsWhenContextDiesBetweenTries(t *testing.T) {
 			cancel()
 		}
 		return boom
-	}, Policy{MaxAttempts: 5})
+	}, WithMaxAttempts(5))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
@@ -173,7 +173,7 @@ func TestRunCanceledContextSkipsFn(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	called := false
-	err := Run(ctx, b, func(context.Context, fakeTx) error { called = true; return nil }, Policy{MaxAttempts: 3})
+	err := Run(ctx, b, func(context.Context, fakeTx) error { called = true; return nil }, WithMaxAttempts(3))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
@@ -195,6 +195,6 @@ func TestRunPanicPropagatesWithoutRetry(t *testing.T) {
 			t.Fatalf("begins = %d, want 1", b.begins)
 		}
 	}()
-	_ = Run(context.Background(), b, func(context.Context, fakeTx) error { panic("kaboom") }, Policy{MaxAttempts: 3})
+	_ = Run(context.Background(), b, func(context.Context, fakeTx) error { panic("kaboom") }, WithMaxAttempts(3))
 	t.Fatal("expected panic")
 }
