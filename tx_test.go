@@ -60,6 +60,33 @@ func TestRunRollsBackOnPanicAndRepanics(t *testing.T) {
 	t.Fatal("expected panic")
 }
 
+type spTx struct{ log *[]string }
+
+func (s spTx) Commit(context.Context) error   { *s.log = append(*s.log, "commit"); return nil }
+func (s spTx) Rollback(context.Context) error { *s.log = append(*s.log, "rollback"); return nil }
+func (s spTx) Begin(context.Context, Options) (spTx, error) {
+	*s.log = append(*s.log, "sub-begin")
+	return s, nil
+}
+
+func TestRunNestsOnTx(t *testing.T) {
+	var log []string
+	root := spTx{&log}
+	err := Run(context.Background(), beginFn(func() (spTx, error) { log = append(log, "begin"); return root, nil }), func(tx spTx) error {
+		return Run(context.Background(), tx, func(spTx) error { return nil })
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exp := []string{"begin", "sub-begin", "commit", "commit"}; !slices.Equal(log, exp) {
+		t.Fatalf("log = %v, want %v", log, exp)
+	}
+}
+
+type beginFn func() (spTx, error)
+
+func (f beginFn) Begin(context.Context, Options) (spTx, error) { return f() }
+
 func TestManagerAppliesDefaultsThenCallOptions(t *testing.T) {
 	b := &fakeBeginner{}
 	m := New[fakeTx](b, WithIsoLevel(LevelSerializable))
