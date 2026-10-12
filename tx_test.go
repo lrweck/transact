@@ -143,7 +143,7 @@ func TestManagerAppliesDefaultsThenCallOptions(t *testing.T) {
 	b := &fakeBeginner{}
 	m := New[fakeTx](b, WithIsoLevel(LevelSerializable))
 	_ = m.Run(context.Background(), func(fakeTx) error { return nil }, WithReadOnly())
-	if b.opts.IsoLevel != LevelSerializable || !b.opts.ReadOnly {
+	if b.opts.IsoLevel() != LevelSerializable || !b.opts.ReadOnly() {
 		t.Fatalf("opts = %+v, want serializable + read-only", b.opts)
 	}
 }
@@ -166,13 +166,13 @@ func TestManagerBeginMergesDefaults(t *testing.T) {
 	if _, err := m.Begin(context.Background(), Options{}); err != nil {
 		t.Fatal(err)
 	}
-	if b.opts.IsoLevel != LevelSerializable || !b.opts.ReadOnly || b.opts.Deferrable != Deferred {
+	if b.opts.IsoLevel() != LevelSerializable || !b.opts.ReadOnly() || b.opts.Deferrable() != Deferred {
 		t.Fatalf("opts = %+v, want defaults", b.opts)
 	}
-	if _, err := m.Begin(context.Background(), Options{IsoLevel: LevelReadCommitted, Deferrable: NotDeferrable}); err != nil {
+	if _, err := m.Begin(context.Background(), JoinOptions(WithIsoLevel(LevelReadCommitted), WithDeferrable(NotDeferrable))); err != nil {
 		t.Fatal(err)
 	}
-	if b.opts.IsoLevel != LevelReadCommitted || !b.opts.ReadOnly || b.opts.Deferrable != NotDeferrable {
+	if b.opts.IsoLevel() != LevelReadCommitted || !b.opts.ReadOnly() || b.opts.Deferrable() != NotDeferrable {
 		t.Fatalf("opts = %+v, want override + defaults", b.opts)
 	}
 }
@@ -185,14 +185,14 @@ func TestManagerBeginMergesRetry(t *testing.T) {
 	if _, err := m.Begin(context.Background(), Options{}); err != nil {
 		t.Fatal(err)
 	}
-	if b.opts.retry == nil || b.opts.retry.MaxAttempts != 2 {
-		t.Fatalf("opts.retry = %+v, want ra", b.opts.retry)
+	if p, ok := b.opts.Retry(); !ok || p.MaxAttempts != 2 {
+		t.Fatalf("opts retry = %+v, %v, want ra", p, ok)
 	}
-	if _, err := m.Begin(context.Background(), Options{retry: &rb}); err != nil {
+	if _, err := m.Begin(context.Background(), WithRetry(rb)); err != nil {
 		t.Fatal(err)
 	}
-	if b.opts.retry != &rb {
-		t.Fatalf("opts.retry = %+v, want rb", b.opts.retry)
+	if p, _ := b.opts.Retry(); p.MaxAttempts != 5 {
+		t.Fatalf("opts retry = %+v, want rb", p)
 	}
 }
 

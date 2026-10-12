@@ -1,6 +1,6 @@
 # transact/retry
 
-Builds retry policies for transact. `New` returns a `transact.Option`, so it plugs into any `Manager`:
+Builds retry policies for transact. `New` returns `transact.Options`, so it plugs into any `Manager`:
 
 ```go
 import transactretry "github.com/lrweck/transact/retry"

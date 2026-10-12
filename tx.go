@@ -23,8 +23,8 @@ type Beginner[T Tx] interface {
 // A panic still panics again after the rollback.
 // When the options carry a retry policy (WithRetry), a failed try is rolled
 // back and tried again. See RetryPolicy for details.
-func Run[T Tx](ctx context.Context, b Beginner[T], fn func(T) error, opts ...Option) error {
-	o := buildOptions(opts)
+func Run[T Tx](ctx context.Context, b Beginner[T], fn func(T) error, opts ...Options) error {
+	o := JoinOptions(opts...)
 	if o.retry == nil {
 		return runOnce(ctx, b, fn, o)
 	}
@@ -134,38 +134,26 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // Manager holds a Beginner and default options used by every Run.
 //
 // Manager is itself a Beginner, so it works anywhere a Beginner is needed,
-// like transact.Run or the retry module.
+// like transact.Run.
 type Manager[T Tx] struct {
 	b        Beginner[T]
-	defaults []Option
+	defaults Options
 }
 
-// New returns a Manager. The options are defaults. Options passed to Run
-// replace the defaults for that call.
-func New[T Tx](b Beginner[T], opts ...Option) *Manager[T] {
-	return &Manager[T]{b: b, defaults: opts}
+// New returns a Manager. The options are defaults, joined into one.
+// Options passed to Run override the defaults for that call.
+func New[T Tx](b Beginner[T], opts ...Options) *Manager[T] {
+	return &Manager[T]{b: b, defaults: JoinOptions(opts...)}
 }
 
-// Begin starts a transaction with the manager defaults. Fields set in opts
-// win for IsoLevel, Deferrable, and retry. ReadOnly is on when either side
-// sets it.
+// Begin starts a transaction with the manager defaults plus opts.
+// Properties set in opts win. See JoinOptions for details.
 func (m *Manager[T]) Begin(ctx context.Context, opts Options) (T, error) {
-	base := buildOptions(m.defaults)
-	if opts.IsoLevel != LevelDefault {
-		base.IsoLevel = opts.IsoLevel
-	}
-	if opts.Deferrable != DeferrableDefault {
-		base.Deferrable = opts.Deferrable
-	}
-	base.ReadOnly = base.ReadOnly || opts.ReadOnly
-	if opts.retry != nil {
-		base.retry = opts.retry
-	}
-	return m.b.Begin(ctx, base)
+	return m.b.Begin(ctx, JoinOptions(m.defaults, opts))
 }
 
 // Run starts a transaction with the manager defaults plus opts, calls fn,
 // then commits. It rolls back on error or panic. See Run for details.
-func (m *Manager[T]) Run(ctx context.Context, fn func(T) error, opts ...Option) error {
+func (m *Manager[T]) Run(ctx context.Context, fn func(T) error, opts ...Options) error {
 	return Run(ctx, m, fn, opts...)
 }

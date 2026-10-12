@@ -1,5 +1,5 @@
 // Package transactretry builds retry policies for transact.
-// New returns a transact.Option, so it plugs into any Manager:
+// New returns transact.Options, so it plugs into any Manager:
 //
 //	m := transactpgx.New(pool, transactretry.New(transactretry.WithMaxAttempts(5)))
 //	m.Run(ctx, fn) // retries on failure
@@ -95,8 +95,8 @@ func WithJitter(min, max time.Duration) RetryOption {
 	return func(o *policy) { o.jitterMin, o.jitterMax = min, max }
 }
 
-// New builds a transact.Option that enables retries with the given knobs.
-func New(opts ...RetryOption) transact.Option {
+// New builds transact.Options that enable retries with the given knobs.
+func New(opts ...RetryOption) transact.Options {
 	var p policy
 	for _, fn := range opts {
 		fn(&p)

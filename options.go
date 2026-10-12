@@ -30,30 +30,75 @@ const (
 	Deferred
 )
 
-// Options configures how a transaction starts.
+// Options configures Run and Manager. An Options value holds one option or,
+// joined, a set of them (see JoinOptions). Each function takes a list of
+// options, where properties set in later options override previously set
+// ones. Unset properties keep their defaults.
 type Options struct {
-	// IsoLevel is the isolation level. LevelDefault keeps the database default.
-	IsoLevel IsoLevel
-	// ReadOnly marks the transaction as read-only when true.
-	ReadOnly bool
-	// Deferrable sets deferrable mode. Only pgx uses it.
-	Deferrable Deferrable
-	// retry enables retries when not nil. Set it with WithRetry.
-	retry *RetryPolicy
+	isoLevel   *IsoLevel
+	readOnly   *bool
+	deferrable *Deferrable
+	retry      *RetryPolicy
 }
 
-// Option changes Options. Pass options to New or Run.
-type Option func(*Options)
+// JoinOptions coalesces options into one. Properties set in later options
+// override the value of previously set properties. Unset properties stay
+// unset, so joining with an empty Options changes nothing.
+func JoinOptions(opts ...Options) Options {
+	var out Options
+	for _, o := range opts {
+		if o.isoLevel != nil {
+			out.isoLevel = o.isoLevel
+		}
+		if o.readOnly != nil {
+			out.readOnly = o.readOnly
+		}
+		if o.deferrable != nil {
+			out.deferrable = o.deferrable
+		}
+		if o.retry != nil {
+			out.retry = o.retry
+		}
+	}
+	return out
+}
 
 // WithIsoLevel sets the isolation level.
-func WithIsoLevel(l IsoLevel) Option { return func(o *Options) { o.IsoLevel = l } }
+func WithIsoLevel(l IsoLevel) Options { return Options{isoLevel: &l} }
 
 // WithReadOnly marks the transaction as read-only.
-func WithReadOnly() Option { return func(o *Options) { o.ReadOnly = true } }
+func WithReadOnly() Options {
+	v := true
+	return Options{readOnly: &v}
+}
 
 // WithDeferrable sets deferrable mode. Only pgx uses it.
-func WithDeferrable(d Deferrable) Option {
-	return func(o *Options) { o.Deferrable = d }
+func WithDeferrable(d Deferrable) Options { return Options{deferrable: &d} }
+
+// IsoLevel returns the isolation level, or LevelDefault when unset.
+func (o Options) IsoLevel() IsoLevel {
+	if o.isoLevel == nil {
+		return LevelDefault
+	}
+	return *o.isoLevel
+}
+
+// ReadOnly reports whether the transaction is read-only. Unset means false.
+func (o Options) ReadOnly() bool {
+	return o.readOnly != nil && *o.readOnly
+}
+
+// Deferrable returns the deferrable mode, or DeferrableDefault when unset.
+func (o Options) Deferrable() Deferrable {
+	if o.deferrable == nil {
+		return DeferrableDefault
+	}
+	return *o.deferrable
+}
+
+// Retry returns the retry policy and whether one is set.
+func (o Options) Retry() (*RetryPolicy, bool) {
+	return o.retry, o.retry != nil
 }
 
 // RetryPolicy controls retries of a failed transaction.
@@ -78,14 +123,4 @@ type RetryPolicy struct {
 }
 
 // WithRetry enables retries with p.
-func WithRetry(p RetryPolicy) Option {
-	return func(o *Options) { o.retry = &p }
-}
-
-func buildOptions(opts []Option) Options {
-	var o Options
-	for _, fn := range opts {
-		fn(&o)
-	}
-	return o
-}
+func WithRetry(p RetryPolicy) Options { return Options{retry: &p} }

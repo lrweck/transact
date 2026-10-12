@@ -112,10 +112,10 @@ func TestBeginnerBeginPassesOptions(t *testing.T) {
 	c := &fakeConn{}
 	db := openFakeDB(c)
 	defer db.Close()
-	tx, err := beginner{db}.Begin(context.Background(), transact.Options{
-		IsoLevel: transact.LevelSerializable,
-		ReadOnly: true,
-	})
+	tx, err := beginner{db}.Begin(context.Background(), transact.JoinOptions(
+		transact.WithIsoLevel(transact.LevelSerializable),
+		transact.WithReadOnly(),
+	))
 	if err != nil {
 		t.Fatal(err)
 	}

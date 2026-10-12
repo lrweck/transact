@@ -16,13 +16,14 @@ func TestTxOptionsMapping(t *testing.T) {
 		want pgx.TxOptions
 	}{
 		{"default", transact.Options{}, pgx.TxOptions{}},
-		{"read uncommitted", transact.Options{IsoLevel: transact.LevelReadUncommitted}, pgx.TxOptions{IsoLevel: pgx.ReadUncommitted}},
-		{"read committed", transact.Options{IsoLevel: transact.LevelReadCommitted}, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}},
-		{"repeatable read", transact.Options{IsoLevel: transact.LevelRepeatableRead}, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}},
-		{"serializable", transact.Options{IsoLevel: transact.LevelSerializable}, pgx.TxOptions{IsoLevel: pgx.Serializable}},
-		{"read only", transact.Options{ReadOnly: true}, pgx.TxOptions{AccessMode: pgx.ReadOnly}},
-		{"deferrable", transact.Options{Deferrable: transact.Deferred}, pgx.TxOptions{DeferrableMode: pgx.Deferrable}},
-		{"not deferrable", transact.Options{Deferrable: transact.NotDeferrable}, pgx.TxOptions{DeferrableMode: pgx.NotDeferrable}},
+		{"read uncommitted", transact.JoinOptions(transact.WithIsoLevel(transact.LevelReadUncommitted)), pgx.TxOptions{IsoLevel: pgx.ReadUncommitted}},
+		{"read committed", transact.JoinOptions(transact.WithIsoLevel(transact.LevelReadCommitted)), pgx.TxOptions{IsoLevel: pgx.ReadCommitted}},
+		{"repeatable read", transact.JoinOptions(transact.WithIsoLevel(transact.LevelRepeatableRead)), pgx.TxOptions{IsoLevel: pgx.RepeatableRead}},
+		{"serializable", transact.JoinOptions(transact.WithIsoLevel(transact.LevelSerializable)), pgx.TxOptions{IsoLevel: pgx.Serializable}},
+		{"read only", transact.JoinOptions(transact.WithReadOnly()), pgx.TxOptions{AccessMode: pgx.ReadOnly}},
+		{"deferrable", transact.JoinOptions(transact.WithDeferrable(transact.Deferred)), pgx.TxOptions{DeferrableMode: pgx.Deferrable}},
+		{"not deferrable", transact.JoinOptions(transact.WithDeferrable(transact.NotDeferrable)), pgx.TxOptions{DeferrableMode: pgx.NotDeferrable}},
+		{"joined", transact.JoinOptions(transact.WithIsoLevel(transact.LevelSerializable), transact.WithReadOnly()), pgx.TxOptions{IsoLevel: pgx.Serializable, AccessMode: pgx.ReadOnly}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -80,10 +81,10 @@ func TestBeginnerBeginPassesOptions(t *testing.T) {
 	var log []string
 	pool := &fakePool{tx: &fakeInnerTx{log: &log}}
 	b := beginner{pool}
-	tx, err := b.Begin(context.Background(), transact.Options{
-		IsoLevel: transact.LevelSerializable,
-		ReadOnly: true,
-	})
+	tx, err := b.Begin(context.Background(), transact.JoinOptions(
+		transact.WithIsoLevel(transact.LevelSerializable),
+		transact.WithReadOnly(),
+	))
 	if err != nil {
 		t.Fatal(err)
 	}

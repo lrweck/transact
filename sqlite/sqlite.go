@@ -18,7 +18,7 @@ type Tx = transactstdlib.Tx
 type Manager = transactstdlib.Manager
 
 // New returns a Manager for db. The options are defaults for every Run.
-func New(db *sql.DB, opts ...transact.Option) *Manager {
+func New(db *sql.DB, opts ...transact.Options) *Manager {
 	return transactstdlib.New(db, opts...)
 }
 

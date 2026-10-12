@@ -56,7 +56,7 @@ func (t Tx) Rollback(ctx context.Context) error {
 
 // Sub runs fn inside a savepoint. When fn fails, only its work is rolled
 // back and the error is returned. The outer transaction keeps going.
-func (t Tx) Sub(ctx context.Context, fn func(Tx) error, opts ...transact.Option) error {
+func (t Tx) Sub(ctx context.Context, fn func(Tx) error, opts ...transact.Options) error {
 	return transact.Run(ctx, t, fn, opts...)
 }
 
@@ -64,7 +64,7 @@ func (t Tx) Sub(ctx context.Context, fn func(Tx) error, opts ...transact.Option)
 type Manager = transact.Manager[Tx]
 
 // New returns a Manager for db. The options are defaults for every Run.
-func New(db DB, opts ...transact.Option) *Manager {
+func New(db DB, opts ...transact.Options) *Manager {
 	return transact.New[Tx](beginner{db}, opts...)
 }
 
@@ -72,8 +72,8 @@ type beginner struct{ db DB }
 
 func (b beginner) Begin(ctx context.Context, o transact.Options) (Tx, error) {
 	tx, err := b.db.BeginTx(ctx, &sql.TxOptions{
-		Isolation: isolation(o.IsoLevel),
-		ReadOnly:  o.ReadOnly,
+		Isolation: isolation(o.IsoLevel()),
+		ReadOnly:  o.ReadOnly(),
 	})
 	if err != nil {
 		return Tx{}, err

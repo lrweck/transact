@@ -28,7 +28,7 @@ func (t Tx) Begin(ctx context.Context, _ transact.Options) (Tx, error) {
 
 // Sub runs fn inside a savepoint. When fn fails, only its work is rolled
 // back and the error is returned. The outer transaction keeps going.
-func (t Tx) Sub(ctx context.Context, fn func(Tx) error, opts ...transact.Option) error {
+func (t Tx) Sub(ctx context.Context, fn func(Tx) error, opts ...transact.Options) error {
 	return transact.Run(ctx, t, fn, opts...)
 }
 
@@ -36,7 +36,7 @@ func (t Tx) Sub(ctx context.Context, fn func(Tx) error, opts ...transact.Option)
 type Manager = transact.Manager[Tx]
 
 // New returns a Manager for pool. The options are defaults for every Run.
-func New(pool Pool, opts ...transact.Option) *Manager {
+func New(pool Pool, opts ...transact.Options) *Manager {
 	return transact.New[Tx](beginner{pool}, opts...)
 }
 
@@ -52,7 +52,7 @@ func (b beginner) Begin(ctx context.Context, o transact.Options) (Tx, error) {
 
 func txOptions(o transact.Options) pgx.TxOptions {
 	var t pgx.TxOptions
-	switch o.IsoLevel {
+	switch o.IsoLevel() {
 	case transact.LevelReadUncommitted:
 		t.IsoLevel = pgx.ReadUncommitted
 	case transact.LevelReadCommitted:
@@ -62,10 +62,10 @@ func txOptions(o transact.Options) pgx.TxOptions {
 	case transact.LevelSerializable:
 		t.IsoLevel = pgx.Serializable
 	}
-	if o.ReadOnly {
+	if o.ReadOnly() {
 		t.AccessMode = pgx.ReadOnly
 	}
-	switch o.Deferrable {
+	switch o.Deferrable() {
 	case transact.Deferred:
 		t.DeferrableMode = pgx.Deferrable
 	case transact.NotDeferrable:
