@@ -134,3 +134,32 @@ func TestManagerAppliesDefaultsThenCallOptions(t *testing.T) {
 		t.Fatalf("opts = %+v, want serializable + read-only", b.opts)
 	}
 }
+
+func TestManagerIsABeginner(t *testing.T) {
+	var _ Beginner[fakeTx] = New[fakeTx](&fakeBeginner{})
+	b := &fakeBeginner{}
+	m := New[fakeTx](b)
+	if err := Run(context.Background(), m, func(fakeTx) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"begin", "commit"}; !slices.Equal(b.log, want) {
+		t.Fatalf("log = %v, want %v", b.log, want)
+	}
+}
+
+func TestManagerBeginMergesDefaults(t *testing.T) {
+	b := &fakeBeginner{}
+	m := New[fakeTx](b, WithIsoLevel(LevelSerializable), WithReadOnly(), WithDeferrable(Deferred))
+	if _, err := m.Begin(context.Background(), Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if b.opts.IsoLevel != LevelSerializable || !b.opts.ReadOnly || b.opts.Deferrable != Deferred {
+		t.Fatalf("opts = %+v, want defaults", b.opts)
+	}
+	if _, err := m.Begin(context.Background(), Options{IsoLevel: LevelReadCommitted, Deferrable: NotDeferrable}); err != nil {
+		t.Fatal(err)
+	}
+	if b.opts.IsoLevel != LevelReadCommitted || !b.opts.ReadOnly || b.opts.Deferrable != NotDeferrable {
+		t.Fatalf("opts = %+v, want override + defaults", b.opts)
+	}
+}

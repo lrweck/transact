@@ -2,7 +2,6 @@ package transact
 
 import (
 	"context"
-	"slices"
 )
 
 // Tx is the smallest transaction handle. It can commit or roll back.
@@ -41,6 +40,9 @@ func Run[T Tx](ctx context.Context, b Beginner[T], fn func(T) error, opts ...Opt
 }
 
 // Manager holds a Beginner and default options used by every Run.
+//
+// Manager is itself a Beginner, so it works anywhere a Beginner is needed,
+// like transact.Run or the retry module.
 type Manager[T Tx] struct {
 	b        Beginner[T]
 	defaults []Option
@@ -52,8 +54,22 @@ func New[T Tx](b Beginner[T], opts ...Option) *Manager[T] {
 	return &Manager[T]{b: b, defaults: opts}
 }
 
+// Begin starts a transaction with the manager defaults. Fields set in opts
+// win for IsoLevel and Deferrable. ReadOnly is on when either side sets it.
+func (m *Manager[T]) Begin(ctx context.Context, opts Options) (T, error) {
+	base := buildOptions(m.defaults)
+	if opts.IsoLevel != LevelDefault {
+		base.IsoLevel = opts.IsoLevel
+	}
+	if opts.Deferrable != DeferrableDefault {
+		base.Deferrable = opts.Deferrable
+	}
+	base.ReadOnly = base.ReadOnly || opts.ReadOnly
+	return m.b.Begin(ctx, base)
+}
+
 // Run starts a transaction with the manager defaults plus opts, calls fn,
 // then commits. It rolls back on error or panic. See Run for details.
 func (m *Manager[T]) Run(ctx context.Context, fn func(T) error, opts ...Option) error {
-	return Run(ctx, m.b, fn, slices.Concat(m.defaults, opts)...)
+	return Run(ctx, m, fn, opts...)
 }
