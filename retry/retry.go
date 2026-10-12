@@ -125,10 +125,7 @@ func composeWait(b Backoff, lo, hi time.Duration) func(int) time.Duration {
 	return func(failed int) time.Duration {
 		top := hi
 		if b != nil {
-			d := b(failed)
-			if d < 0 {
-				d = 0
-			}
+			d := max(b(failed), 0)
 			top = min(hi, max(d, lo))
 		}
 		if top <= lo {

@@ -125,7 +125,7 @@ func TestBackoffStrategies(t *testing.T) {
 func TestComposeWaitBounds(t *testing.T) {
 	check := func(w func(int) time.Duration, lo, hi time.Duration) {
 		t.Helper()
-		for i := 0; i < 200; i++ {
+		for range 200 {
 			if got := w(1); got < lo || got > hi {
 				t.Fatalf("wait = %v, want in [%v, %v]", got, lo, hi)
 			}
@@ -145,7 +145,7 @@ func TestComposeWaitBounds(t *testing.T) {
 
 func TestComposeWaitClamps(t *testing.T) {
 	w := composeWait(ConstantBackoff(10*time.Millisecond), -5*time.Millisecond, 15*time.Millisecond)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		if got := w(1); got < 0 || got > 10*time.Millisecond {
 			t.Fatalf("wait = %v, want in [0, 10ms]", got)
 		}
