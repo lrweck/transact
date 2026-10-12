@@ -29,7 +29,7 @@ Each try runs through `transact.Run`, so a failed try is rolled back before the 
 | `WithMaxAttempts` | Total tries, including the first. Below 1 means 1 (no retry). Default is 1. |
 | `WithPerTryTimeout` | Bounds each try's begin and commit, not the callback: queries use your context. Zero means none. |
 | `WithTotalTimeout` | Timeout for all tries together. Zero means none. |
-| `WithRetryIf` | Return false to stop retrying an error. Default retries every error. |
+| `WithRetryIf` | Adds a matcher for retryable errors. Each call adds another; a try is retried when any matcher says so. No matchers retries every error. |
 | `WithBackoff` | Wait strategy between tries. Default is no wait. |
 | `WithJitter(min, max)` | Randomizes the wait into `[min, max]`. |
 
@@ -40,5 +40,33 @@ Three strategies: `ConstantBackoff`, `LinearBackoff` (base, 2x, 3x, ...), and `E
 `WithJitter(min, max)` randomizes the wait into `[min, max]`. Without a strategy the wait is uniform in `[min, max]`. With a strategy, the strategy value caps the range: uniform in `[min, strategy]`, clamped to `[min, max]`. A strategy below `min` waits `min`.
 
 A panic rolls back and panics again without retry. When the context is done, `Run` stops and returns the context error. Otherwise it returns the last error wrapped with the try count, so `errors.Is` and `errors.As` still work.
+
+## RetryIf
+
+`RetryIf` runs on the try's error, after the rollback and before the backoff sleep. Returning false stops and returns the error. Panics and context errors never reach it.
+
+Write one small matcher per transient error and stack them — a try is retried when any matcher matches:
+
+```go
+isSerialization := func(err error) bool {
+    var pgErr *pgconn.PgError // already a dependency if you use pgx
+    return errors.As(err, &pgErr) && pgErr.Code == "40001"
+}
+isDeadlock := func(err error) bool {
+    var pgErr *pgconn.PgError
+    return errors.As(err, &pgErr) && pgErr.Code == "40P01"
+}
+isBusy := func(err error) bool {
+    return strings.Contains(err.Error(), "SQLITE_BUSY")
+}
+
+transactretry.New(
+    transactretry.WithRetryIf(isSerialization),
+    transactretry.WithRetryIf(isDeadlock),
+    transactretry.WithRetryIf(isBusy),
+)
+```
+
+Use `errors.As`/`errors.Is` inside matchers: the error arrives wrapped with the try count. The library ships no matchers on purpose — they would drag driver dependencies into this module. Your app already depends on its driver, so the matchers live there.
 
 Set `RetryIf` in production. Retrying every error wastes tries on errors that never go away, like constraint violations. Retry transient errors: serialization failures, deadlocks, and `SQLITE_BUSY`.
