@@ -10,6 +10,7 @@ Transactions for Go database code. The callback gets the driver's native transac
 | pgx | `github.com/lrweck/transact/pgx` | `pgx/v5` |
 | database/sql | `github.com/lrweck/transact/stdlib` | nothing (works with any `database/sql` driver) |
 | SQLite | `github.com/lrweck/transact/sqlite` | `modernc.org/sqlite` |
+| retry | `github.com/lrweck/transact/retry` | nothing (core only) |
 
 Install only the one you use.
 
@@ -60,6 +61,23 @@ m := transactsqlite.New(db)
 ```
 
 `Open` returns a `*sql.DB` so you can call `Close` and pass it to sqlc.
+
+## Retry
+
+```go
+import transactretry "github.com/lrweck/transact/retry"
+
+err := transactretry.Run(ctx, r.Manager, func(ctx context.Context, tx transactpgx.Tx) error {
+    return gen.New(tx).Insert(ctx, ...)
+}, transactretry.Policy{
+    MaxAttempts:   5,
+    PerTryTimeout: 2 * time.Second,  // each try gets a context with this timeout
+    TotalTimeout:  30 * time.Second, // all tries together
+    RetryIf:       func(err error) bool { return isSerializationError(err) },
+}, transact.WithIsoLevel(transact.LevelSerializable))
+```
+
+Each try runs through `transact.Run`, so a failed try is rolled back before the next one starts. The callback gets the try context: use it for queries so `PerTryTimeout` can stop a slow try. A panic rolls back and panics again without retry. `Manager` works here because it is a `Beginner`.
 
 ## Writing an adapter
 
