@@ -199,6 +199,44 @@ func TestRunPanicPropagatesWithoutRetry(t *testing.T) {
 	t.Fatal("expected panic")
 }
 
+func TestManagerRunUsesDefaults(t *testing.T) {
+	b := &fakeBeginner{}
+	boom := errors.New("boom")
+	m := New(b, WithMaxAttempts(3))
+	err := m.Run(context.Background(), func(context.Context, fakeTx) error { return boom })
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want boom", err)
+	}
+	if b.begins != 3 {
+		t.Fatalf("begins = %d, want 3", b.begins)
+	}
+}
+
+func TestManagerCallOptsOverrideDefaults(t *testing.T) {
+	b := &fakeBeginner{}
+	boom := errors.New("boom")
+	m := New(b, WithMaxAttempts(1))
+	err := m.Run(context.Background(), func(context.Context, fakeTx) error { return boom }, WithMaxAttempts(3))
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want boom", err)
+	}
+	if b.begins != 3 {
+		t.Fatalf("begins = %d, want 3", b.begins)
+	}
+}
+
+func TestManagerMergesTxOptions(t *testing.T) {
+	b := &fakeBeginner{}
+	m := New(b, WithTxOptions(transact.WithIsoLevel(transact.LevelSerializable)))
+	if err := m.Run(context.Background(), func(context.Context, fakeTx) error { return nil },
+		WithTxOptions(transact.WithReadOnly())); err != nil {
+		t.Fatal(err)
+	}
+	if b.opts.IsoLevel != transact.LevelSerializable || !b.opts.ReadOnly {
+		t.Fatalf("opts = %+v, want serializable + read-only", b.opts)
+	}
+}
+
 func TestBackoffStrategies(t *testing.T) {
 	if got := ConstantBackoff(100 * time.Millisecond)(1); got != 100*time.Millisecond {
 		t.Fatalf("constant(1) = %v", got)

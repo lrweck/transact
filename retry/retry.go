@@ -4,6 +4,7 @@ package transactretry
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	randv2 "math/rand/v2"
@@ -97,6 +98,25 @@ func WithBackoff(b Backoff) Option {
 // Negative values count as zero. A max below min counts as min.
 func WithJitter(min, max time.Duration) Option {
 	return func(o *options) { o.jitterMin, o.jitterMax = min, max }
+}
+
+// Manager retries transactions with fixed retry options.
+// Embed it in your repository to get Run.
+type Manager[T transact.Tx] struct {
+	b        transact.Beginner[T]
+	defaults []Option
+}
+
+// New returns a Manager. The options are defaults. Options passed to Run
+// replace the defaults for that call.
+func New[T transact.Tx](b transact.Beginner[T], opts ...Option) *Manager[T] {
+	return &Manager[T]{b: b, defaults: opts}
+}
+
+// Run starts a transaction, calls fn, and commits, retrying on failure.
+// It uses the manager defaults plus opts. See Run for details.
+func (m *Manager[T]) Run(ctx context.Context, fn func(context.Context, T) error, opts ...Option) error {
+	return Run(ctx, m.b, fn, slices.Concat(m.defaults, opts)...)
 }
 
 // Run starts a transaction, calls fn, and commits, retrying on failure.
