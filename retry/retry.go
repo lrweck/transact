@@ -1,10 +1,11 @@
-// Package transactretry retries failed transactions.
+// Package transactretry builds retry policies for transact.
+// New returns a transact.Option, so it plugs into any Manager:
+//
+//	m := transactpgx.New(pool, transactretry.New(transactretry.WithMaxAttempts(5)))
+//	m.Run(ctx, fn) // retries on failure
 package transactretry
 
 import (
-	"context"
-	"fmt"
-	"slices"
 	"time"
 
 	randv2 "math/rand/v2"
@@ -12,10 +13,10 @@ import (
 	"github.com/lrweck/transact"
 )
 
-// Option configures Run.
-type Option func(*options)
+// RetryOption configures New.
+type RetryOption func(*policy)
 
-type options struct {
+type policy struct {
 	maxAttempts   int
 	perTryTimeout time.Duration
 	totalTimeout  time.Duration
@@ -23,36 +24,30 @@ type options struct {
 	backoff       Backoff
 	jitterMin     time.Duration
 	jitterMax     time.Duration
-	txOpts        []transact.Option
 }
 
 // WithMaxAttempts sets the total number of tries, including the first one.
 // Values below 1 mean 1, a single try with no retry. Default is 1.
-func WithMaxAttempts(n int) Option {
-	return func(o *options) { o.maxAttempts = n }
+func WithMaxAttempts(n int) RetryOption {
+	return func(o *policy) { o.maxAttempts = n }
 }
 
-// WithPerTryTimeout bounds each try. The callback gets a context that
-// expires after this time. Zero or less means no limit.
-func WithPerTryTimeout(d time.Duration) Option {
-	return func(o *options) { o.perTryTimeout = d }
+// WithPerTryTimeout bounds each try's begin and commit. It does not bound
+// the callback: queries use your context. Zero or less means no limit.
+func WithPerTryTimeout(d time.Duration) RetryOption {
+	return func(o *policy) { o.perTryTimeout = d }
 }
 
 // WithTotalTimeout bounds the whole operation, all tries together.
 // Zero or less means no limit.
-func WithTotalTimeout(d time.Duration) Option {
-	return func(o *options) { o.totalTimeout = d }
+func WithTotalTimeout(d time.Duration) RetryOption {
+	return func(o *policy) { o.totalTimeout = d }
 }
 
 // WithRetryIf sets when a failed try is worth retrying. Nil means every
 // error is retried. Returning false stops and returns the error.
-func WithRetryIf(f func(error) bool) Option {
-	return func(o *options) { o.retryIf = f }
-}
-
-// WithTxOptions passes transaction options to every try.
-func WithTxOptions(opts ...transact.Option) Option {
-	return func(o *options) { o.txOpts = append(o.txOpts, opts...) }
+func WithRetryIf(f func(error) bool) RetryOption {
+	return func(o *policy) { o.retryIf = f }
 }
 
 // Backoff returns how long to wait before the next try.
@@ -87,8 +82,8 @@ func ExponentialBackoff(base time.Duration) Backoff {
 const maxBackoff = time.Duration(1<<63 - 1)
 
 // WithBackoff sets the wait strategy between tries. Default is no wait.
-func WithBackoff(b Backoff) Option {
-	return func(o *options) { o.backoff = b }
+func WithBackoff(b Backoff) RetryOption {
+	return func(o *policy) { o.backoff = b }
 }
 
 // WithJitter randomizes the wait between tries into [min, max].
@@ -96,130 +91,49 @@ func WithBackoff(b Backoff) Option {
 // With a strategy, the strategy value caps the range: the wait is uniform
 // in [min, strategy], clamped to [min, max]. A strategy below min waits min.
 // Negative values count as zero. A max below min counts as min.
-func WithJitter(min, max time.Duration) Option {
-	return func(o *options) { o.jitterMin, o.jitterMax = min, max }
+func WithJitter(min, max time.Duration) RetryOption {
+	return func(o *policy) { o.jitterMin, o.jitterMax = min, max }
 }
 
-// Manager retries transactions with fixed retry options.
-// Embed it in your repository to get Run.
-type Manager[T transact.Tx] struct {
-	b        transact.Beginner[T]
-	defaults []Option
-}
-
-// New returns a Manager. The options are defaults. Options passed to Run
-// replace the defaults for that call.
-func New[T transact.Tx](b transact.Beginner[T], opts ...Option) *Manager[T] {
-	return &Manager[T]{b: b, defaults: opts}
-}
-
-// Run starts a transaction, calls fn, and commits, retrying on failure.
-// It uses the manager defaults plus opts. See Run for details.
-func (m *Manager[T]) Run(ctx context.Context, fn func(context.Context, T) error, opts ...Option) error {
-	return Run(ctx, m.b, fn, slices.Concat(m.defaults, opts)...)
-}
-
-// Run starts a transaction, calls fn, and commits, retrying on failure.
-// Each try runs through transact.Run, so a failed try is rolled back before
-// the next one starts.
-//
-// Fn gets the try context and the transaction. Use that context for queries
-// so WithPerTryTimeout can stop a slow try.
-//
-// A panic in fn rolls back and panics again without retry. When the context
-// is done, Run stops and returns the context error. Otherwise it returns the
-// last error wrapped with the try count, so errors.Is and errors.As work.
-func Run[T transact.Tx](ctx context.Context, b transact.Beginner[T], fn func(context.Context, T) error, opts ...Option) error {
-	var o options
+// New builds a transact.Option that enables retries with the given knobs.
+func New(opts ...RetryOption) transact.Option {
+	var p policy
 	for _, fn := range opts {
-		fn(&o)
+		fn(&p)
 	}
-	max := o.maxAttempts
-	if max < 1 {
-		max = 1
-	}
-	if o.totalTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, o.totalTimeout)
-		defer cancel()
-	}
-	var err error
-	tries := 0
-	for tries < max {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			if tries == 0 {
-				return ctxErr
-			}
-			return fmt.Errorf("transact: gave up after %d attempt(s): %w", tries, ctxErr)
-		}
-		tries++
-		err = tryOnce(ctx, b, fn, o.perTryTimeout, o.txOpts)
-		if err == nil {
-			return nil
-		}
-		if tries == max {
-			break
-		}
-		if o.retryIf != nil && !o.retryIf(err) {
-			break
-		}
-		if werr := sleepCtx(ctx, waitFor(&o, tries)); werr != nil {
-			return fmt.Errorf("transact: gave up after %d attempt(s): %w", tries, werr)
-		}
-	}
-	return fmt.Errorf("transact: gave up after %d attempt(s): %w", tries, err)
+	return transact.WithRetry(transact.RetryPolicy{
+		MaxAttempts:   p.maxAttempts,
+		PerTryTimeout: p.perTryTimeout,
+		TotalTimeout:  p.totalTimeout,
+		RetryIf:       p.retryIf,
+		Wait:          composeWait(p.backoff, p.jitterMin, p.jitterMax),
+	})
 }
 
-// waitFor computes the wait before the next try. failed is the number of
-// failed tries so far, starting at 1.
-func waitFor(o *options, failed int) time.Duration {
-	var d time.Duration
-	if o.backoff != nil {
-		d = o.backoff(failed)
+// composeWait merges a strategy with jitter into one wait func.
+// It returns nil when there is no wait at all.
+func composeWait(b Backoff, lo, hi time.Duration) func(int) time.Duration {
+	if hi <= 0 {
+		return b
 	}
-	if d < 0 {
-		d = 0
-	}
-	if o.jitterMax <= 0 {
-		return d
-	}
-	lo, hi := o.jitterMin, o.jitterMax
 	if lo < 0 {
 		lo = 0
 	}
 	if hi < lo {
 		hi = lo
 	}
-	top := hi
-	if o.backoff != nil {
-		top = min(hi, max(d, lo))
+	return func(failed int) time.Duration {
+		top := hi
+		if b != nil {
+			d := b(failed)
+			if d < 0 {
+				d = 0
+			}
+			top = min(hi, max(d, lo))
+		}
+		if top <= lo {
+			return lo
+		}
+		return lo + time.Duration(randv2.Int64N(int64(top-lo)+1))
 	}
-	if top <= lo {
-		return lo
-	}
-	return lo + time.Duration(randv2.Int64N(int64(top-lo)+1))
-}
-
-// sleepCtx waits d or returns early when ctx is done.
-func sleepCtx(ctx context.Context, d time.Duration) error {
-	if d <= 0 {
-		return nil
-	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
-	}
-}
-
-func tryOnce[T transact.Tx](ctx context.Context, b transact.Beginner[T], fn func(context.Context, T) error, timeout time.Duration, txOpts []transact.Option) (err error) {
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
-	return transact.Run(ctx, b, func(tx T) error { return fn(ctx, tx) }, txOpts...)
 }
