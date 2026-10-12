@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/lrweck/transact"
@@ -180,38 +181,42 @@ func TestNewWithJitterEndToEnd(t *testing.T) {
 }
 
 func TestNewSleepsBetweenTries(t *testing.T) {
-	b := &fakeBeginner{}
-	boom := errors.New("boom")
-	start := time.Now()
-	err := transact.Run(context.Background(), b, func(fakeTx) error { return boom },
-		New(WithMaxAttempts(2), WithBackoff(ConstantBackoff(20*time.Millisecond))))
-	if !errors.Is(err, boom) {
-		t.Fatalf("err = %v, want boom", err)
-	}
-	if b.begins != 2 {
-		t.Fatalf("begins = %d, want 2", b.begins)
-	}
-	if elapsed := time.Since(start); elapsed < 20*time.Millisecond {
-		t.Fatalf("elapsed = %v, want at least 20ms", elapsed)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		b := &fakeBeginner{}
+		boom := errors.New("boom")
+		start := time.Now()
+		err := transact.Run(context.Background(), b, func(fakeTx) error { return boom },
+			New(WithMaxAttempts(2), WithBackoff(ConstantBackoff(20*time.Millisecond))))
+		if !errors.Is(err, boom) {
+			t.Fatalf("err = %v, want boom", err)
+		}
+		if b.begins != 2 {
+			t.Fatalf("begins = %d, want 2", b.begins)
+		}
+		if elapsed := time.Since(start); elapsed < 20*time.Millisecond {
+			t.Fatalf("elapsed = %v, want at least 20ms", elapsed)
+		}
+	})
 }
 
 func TestNewSleepInterruptedByCancel(t *testing.T) {
-	b := &fakeBeginner{}
-	ctx, cancel := context.WithCancel(context.Background())
-	boom := errors.New("boom")
-	start := time.Now()
-	err := transact.Run(ctx, b, func(fakeTx) error {
-		cancel()
-		return boom
-	}, New(WithMaxAttempts(5), WithBackoff(ConstantBackoff(time.Hour))))
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("err = %v, want context.Canceled", err)
-	}
-	if b.begins != 1 {
-		t.Fatalf("begins = %d, want 1", b.begins)
-	}
-	if elapsed := time.Since(start); elapsed > 10*time.Second {
-		t.Fatalf("elapsed = %v, want a fast return", elapsed)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		b := &fakeBeginner{}
+		ctx, cancel := context.WithCancel(context.Background())
+		boom := errors.New("boom")
+		start := time.Now()
+		err := transact.Run(ctx, b, func(fakeTx) error {
+			cancel()
+			return boom
+		}, New(WithMaxAttempts(5), WithBackoff(ConstantBackoff(time.Hour))))
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err = %v, want context.Canceled", err)
+		}
+		if b.begins != 1 {
+			t.Fatalf("begins = %d, want 1", b.begins)
+		}
+		if elapsed := time.Since(start); elapsed > 10*time.Second {
+			t.Fatalf("elapsed = %v, want a fast return", elapsed)
+		}
+	})
 }
