@@ -11,6 +11,7 @@ Transactions for Go database code. The callback gets the driver's native transac
 | database/sql | `github.com/lrweck/transact/stdlib` | nothing (works with any `database/sql` driver) |
 | SQLite | `github.com/lrweck/transact/sqlite` | `modernc.org/sqlite` |
 | retry | `github.com/lrweck/transact/retry` | nothing (core only) |
+| integration | `github.com/lrweck/transact/integration` | testcontainers (tests only, tag `integration`) |
 
 Install only the one you use.
 
