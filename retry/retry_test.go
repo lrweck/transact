@@ -68,6 +68,39 @@ func TestNewStopsWhenRetryIfSaysNo(t *testing.T) {
 	}
 }
 
+func TestNewRetriesWhenAnyMatcherSaysYes(t *testing.T) {
+	no := func(error) bool { return false }
+	yes := func(error) bool { return true }
+	for _, opts := range [][]RetryOption{
+		{WithRetryIf(no), WithRetryIf(yes)},
+		{WithRetryIf(yes), WithRetryIf(no)},
+	} {
+		b := &fakeBeginner{}
+		boom := errors.New("boom")
+		err := transact.Run(context.Background(), b, func(fakeTx) error { return boom },
+			New(append([]RetryOption{WithMaxAttempts(2)}, opts...)...))
+		if !errors.Is(err, boom) {
+			t.Fatalf("err = %v, want boom", err)
+		}
+		if b.begins != 2 {
+			t.Fatalf("begins = %d, want 2", b.begins)
+		}
+	}
+}
+
+func TestNewIgnoresNilMatcher(t *testing.T) {
+	b := &fakeBeginner{}
+	boom := errors.New("boom")
+	err := transact.Run(context.Background(), b, func(fakeTx) error { return boom },
+		New(WithMaxAttempts(2), WithRetryIf(nil)))
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want boom", err)
+	}
+	if b.begins != 2 {
+		t.Fatalf("begins = %d, want 2 (nil matcher ignored, retries all)", b.begins)
+	}
+}
+
 func TestNewDefaultsToOneTry(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
