@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 )
 
 type fakeTx struct {
@@ -23,18 +24,30 @@ type fakeBeginner struct {
 	opts     Options
 	beginTx  fakeTx
 	beginErr error
+	deadline bool
 }
 
-func (b *fakeBeginner) Begin(_ context.Context, o Options) (fakeTx, error) {
+func (b *fakeBeginner) Begin(ctx context.Context, o Options) (fakeTx, error) {
 	if b.beginErr != nil {
 		return fakeTx{}, b.beginErr
 	}
+	_, b.deadline = ctx.Deadline()
 	b.opts = o
 	b.log = append(b.log, "begin")
 	if b.beginTx.log == nil {
 		b.beginTx.log = &b.log
 	}
 	return b.beginTx, nil
+}
+
+func countBegins(log []string) int {
+	n := 0
+	for _, e := range log {
+		if e == "begin" {
+			n++
+		}
+	}
+	return n
 }
 
 func TestRunCommitsOnSuccess(t *testing.T) {
@@ -161,5 +174,185 @@ func TestManagerBeginMergesDefaults(t *testing.T) {
 	}
 	if b.opts.IsoLevel != LevelReadCommitted || !b.opts.ReadOnly || b.opts.Deferrable != NotDeferrable {
 		t.Fatalf("opts = %+v, want override + defaults", b.opts)
+	}
+}
+
+func TestManagerBeginMergesRetry(t *testing.T) {
+	b := &fakeBeginner{}
+	ra := RetryPolicy{MaxAttempts: 2}
+	rb := RetryPolicy{MaxAttempts: 5}
+	m := New[fakeTx](b, WithRetry(ra))
+	if _, err := m.Begin(context.Background(), Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if b.opts.retry == nil || b.opts.retry.MaxAttempts != 2 {
+		t.Fatalf("opts.retry = %+v, want ra", b.opts.retry)
+	}
+	if _, err := m.Begin(context.Background(), Options{retry: &rb}); err != nil {
+		t.Fatal(err)
+	}
+	if b.opts.retry != &rb {
+		t.Fatalf("opts.retry = %+v, want rb", b.opts.retry)
+	}
+}
+
+func TestRunRetrySucceedsAfterFailures(t *testing.T) {
+	b := &fakeBeginner{}
+	boom := errors.New("boom")
+	left := 2
+	err := Run(context.Background(), b, func(fakeTx) error {
+		if left > 0 {
+			left--
+			return boom
+		}
+		return nil
+	}, WithRetry(RetryPolicy{MaxAttempts: 3}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := countBegins(b.log); n != 3 {
+		t.Fatalf("begins = %d, want 3 (log %v)", n, b.log)
+	}
+}
+
+func TestRunRetryGivesUpWrappingLastError(t *testing.T) {
+	b := &fakeBeginner{}
+	boom := errors.New("boom")
+	err := Run(context.Background(), b, func(fakeTx) error { return boom },
+		WithRetry(RetryPolicy{MaxAttempts: 2}))
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want wrapped boom", err)
+	}
+	if n := countBegins(b.log); n != 2 {
+		t.Fatalf("begins = %d, want 2 (log %v)", n, b.log)
+	}
+}
+
+func TestRunRetryStopsWhenRetryIfSaysNo(t *testing.T) {
+	b := &fakeBeginner{}
+	boom := errors.New("boom")
+	err := Run(context.Background(), b, func(fakeTx) error { return boom },
+		WithRetry(RetryPolicy{MaxAttempts: 5, RetryIf: func(error) bool { return false }}))
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want boom", err)
+	}
+	if n := countBegins(b.log); n != 1 {
+		t.Fatalf("begins = %d, want 1 (log %v)", n, b.log)
+	}
+}
+
+func TestRunRetryZeroPolicyMeansOneTry(t *testing.T) {
+	b := &fakeBeginner{}
+	boom := errors.New("boom")
+	err := Run(context.Background(), b, func(fakeTx) error { return boom }, WithRetry(RetryPolicy{}))
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want boom", err)
+	}
+	if n := countBegins(b.log); n != 1 {
+		t.Fatalf("begins = %d, want 1 (log %v)", n, b.log)
+	}
+}
+
+func TestRunRetrySetsPerTryAndTotalDeadlines(t *testing.T) {
+	b := &fakeBeginner{}
+	err := Run(context.Background(), b, func(fakeTx) error { return nil },
+		WithRetry(RetryPolicy{MaxAttempts: 1, PerTryTimeout: time.Second}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !b.deadline {
+		t.Fatal("begin got no deadline with PerTryTimeout")
+	}
+	b = &fakeBeginner{}
+	err = Run(context.Background(), b, func(fakeTx) error { return nil },
+		WithRetry(RetryPolicy{MaxAttempts: 1, TotalTimeout: time.Second}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !b.deadline {
+		t.Fatal("begin got no deadline with TotalTimeout")
+	}
+}
+
+func TestRunRetryNegativeWaitMeansNoWait(t *testing.T) {
+	b := &fakeBeginner{}
+	boom := errors.New("boom")
+	start := time.Now()
+	err := Run(context.Background(), b, func(fakeTx) error { return boom },
+		WithRetry(RetryPolicy{MaxAttempts: 2, Wait: func(int) time.Duration { return -time.Second }}))
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want boom", err)
+	}
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
+		t.Fatalf("elapsed = %v, want a fast return", elapsed)
+	}
+}
+
+func TestRunRetrySleepsBetweenTries(t *testing.T) {
+	b := &fakeBeginner{}
+	boom := errors.New("boom")
+	start := time.Now()
+	err := Run(context.Background(), b, func(fakeTx) error { return boom },
+		WithRetry(RetryPolicy{MaxAttempts: 2, Wait: func(int) time.Duration { return 20 * time.Millisecond }}))
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want boom", err)
+	}
+	if elapsed := time.Since(start); elapsed < 20*time.Millisecond {
+		t.Fatalf("elapsed = %v, want at least 20ms", elapsed)
+	}
+}
+
+func TestRunRetryStopsWhenContextDiesBetweenTries(t *testing.T) {
+	b := &fakeBeginner{}
+	ctx, cancel := context.WithCancel(context.Background())
+	boom := errors.New("boom")
+	first := true
+	err := Run(ctx, b, func(fakeTx) error {
+		if first {
+			first = false
+			cancel()
+		}
+		return boom
+	}, WithRetry(RetryPolicy{MaxAttempts: 5}))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if n := countBegins(b.log); n != 1 {
+		t.Fatalf("begins = %d, want 1 (log %v)", n, b.log)
+	}
+}
+
+func TestRunRetryCanceledContextSkipsFn(t *testing.T) {
+	b := &fakeBeginner{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	called := false
+	err := Run(ctx, b, func(fakeTx) error { called = true; return nil },
+		WithRetry(RetryPolicy{MaxAttempts: 3}))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if called {
+		t.Fatal("fn was called with a canceled context")
+	}
+}
+
+func TestRunRetrySleepInterruptedByCancel(t *testing.T) {
+	b := &fakeBeginner{}
+	ctx, cancel := context.WithCancel(context.Background())
+	boom := errors.New("boom")
+	start := time.Now()
+	err := Run(ctx, b, func(fakeTx) error {
+		cancel()
+		return boom
+	}, WithRetry(RetryPolicy{MaxAttempts: 5, Wait: func(int) time.Duration { return time.Hour }}))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if n := countBegins(b.log); n != 1 {
+		t.Fatalf("begins = %d, want 1 (log %v)", n, b.log)
+	}
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
+		t.Fatalf("elapsed = %v, want a fast return", elapsed)
 	}
 }

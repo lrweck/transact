@@ -2,6 +2,8 @@ package transact
 
 import (
 	"context"
+	"fmt"
+	"time"
 )
 
 // Tx is the smallest transaction handle. It can commit or roll back.
@@ -19,8 +21,18 @@ type Beginner[T Tx] interface {
 // Run starts a transaction, calls fn with it, then commits.
 // It rolls back when fn returns an error and also when fn panics.
 // A panic still panics again after the rollback.
-func Run[T Tx](ctx context.Context, b Beginner[T], fn func(T) error, opts ...Option) (err error) {
-	tx, err := b.Begin(ctx, buildOptions(opts))
+// When the options carry a retry policy (WithRetry), a failed try is rolled
+// back and tried again. See RetryPolicy for details.
+func Run[T Tx](ctx context.Context, b Beginner[T], fn func(T) error, opts ...Option) error {
+	o := buildOptions(opts)
+	if o.retry == nil {
+		return runOnce(ctx, b, fn, o)
+	}
+	return runRetry(ctx, b, fn, o)
+}
+
+func runOnce[T Tx](ctx context.Context, b Beginner[T], fn func(T) error, o Options) (err error) {
+	tx, err := b.Begin(ctx, o)
 	if err != nil {
 		return err
 	}
@@ -39,6 +51,86 @@ func Run[T Tx](ctx context.Context, b Beginner[T], fn func(T) error, opts ...Opt
 	return tx.Commit(ctx)
 }
 
+// runRetry tries runOnce again on failure. A panic rolls back and panics
+// again without retry. When the context is done, it stops and returns the
+// context error. Otherwise it returns the last error wrapped with the try
+// count, so errors.Is and errors.As work.
+func runRetry[T Tx](ctx context.Context, b Beginner[T], fn func(T) error, o Options) error {
+	p := o.retry
+	max := p.MaxAttempts
+	if max < 1 {
+		max = 1
+	}
+	if p.TotalTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, p.TotalTimeout)
+		defer cancel()
+	}
+	var err error
+	tries := 0
+	for tries < max {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			if tries == 0 {
+				return ctxErr
+			}
+			return fmt.Errorf("transact: gave up after %d attempt(s): %w", tries, ctxErr)
+		}
+		tries++
+		err = tryOnce(ctx, b, fn, o, p.PerTryTimeout)
+		if err == nil {
+			return nil
+		}
+		if tries == max {
+			break
+		}
+		if p.RetryIf != nil && !p.RetryIf(err) {
+			break
+		}
+		if werr := sleepCtx(ctx, wait(p, tries)); werr != nil {
+			return fmt.Errorf("transact: gave up after %d attempt(s): %w", tries, werr)
+		}
+	}
+	return fmt.Errorf("transact: gave up after %d attempt(s): %w", tries, err)
+}
+
+// tryOnce runs one try with an optional timeout on its begin and commit.
+// The callback keeps using your context for queries.
+func tryOnce[T Tx](ctx context.Context, b Beginner[T], fn func(T) error, o Options, timeout time.Duration) (err error) {
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	return runOnce(ctx, b, fn, o)
+}
+
+// wait computes the hold before the next try. failed is the number of
+// failed tries so far, starting at 1.
+func wait(p *RetryPolicy, failed int) time.Duration {
+	if p.Wait == nil {
+		return 0
+	}
+	if d := p.Wait(failed); d > 0 {
+		return d
+	}
+	return 0
+}
+
+// sleepCtx waits d or returns early when ctx is done.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
 // Manager holds a Beginner and default options used by every Run.
 //
 // Manager is itself a Beginner, so it works anywhere a Beginner is needed,
@@ -55,7 +147,8 @@ func New[T Tx](b Beginner[T], opts ...Option) *Manager[T] {
 }
 
 // Begin starts a transaction with the manager defaults. Fields set in opts
-// win for IsoLevel and Deferrable. ReadOnly is on when either side sets it.
+// win for IsoLevel, Deferrable, and retry. ReadOnly is on when either side
+// sets it.
 func (m *Manager[T]) Begin(ctx context.Context, opts Options) (T, error) {
 	base := buildOptions(m.defaults)
 	if opts.IsoLevel != LevelDefault {
@@ -65,6 +158,9 @@ func (m *Manager[T]) Begin(ctx context.Context, opts Options) (T, error) {
 		base.Deferrable = opts.Deferrable
 	}
 	base.ReadOnly = base.ReadOnly || opts.ReadOnly
+	if opts.retry != nil {
+		base.retry = opts.retry
+	}
 	return m.b.Begin(ctx, base)
 }
 
