@@ -67,20 +67,22 @@ m := transactsqlite.New(db)
 ```go
 import transactretry "github.com/lrweck/transact/retry"
 
-err := transactretry.New(r.Manager,
-    transactretry.WithMaxAttempts(5),
-    transactretry.WithPerTryTimeout(2*time.Second),  // each try gets a context with this timeout
-    transactretry.WithTotalTimeout(30*time.Second),  // all tries together
-    transactretry.WithRetryIf(func(err error) bool { return isSerializationError(err) }),
-    transactretry.WithBackoff(transactretry.ExponentialBackoff(100*time.Millisecond)),
-    transactretry.WithJitter(100*time.Millisecond, 2*time.Second),
-    transactretry.WithTxOptions(transact.WithIsoLevel(transact.LevelSerializable)),
-).Run(ctx, func(ctx context.Context, tx transactpgx.Tx) error {
-    return gen.New(tx).Insert(ctx, ...)
-})
+m := transactpgx.New(pool,
+    transactretry.New(
+        transactretry.WithMaxAttempts(5),
+        transactretry.WithPerTryTimeout(2*time.Second),  // bounds each try's begin and commit
+        transactretry.WithTotalTimeout(30*time.Second),  // all tries together
+        transactretry.WithRetryIf(func(err error) bool { return isSerializationError(err) }),
+        transactretry.WithBackoff(transactretry.ExponentialBackoff(100*time.Millisecond)),
+        transactretry.WithJitter(100*time.Millisecond, 2*time.Second),
+    ),
+    transact.WithIsoLevel(transact.LevelSerializable),
+)
+
+m.Run(ctx, func(tx transactpgx.Tx) error { ... }) // retries on failure
 ```
 
-Each try runs through `transact.Run`, so a failed try is rolled back before the next one starts. The callback gets the try context: use it for queries so `PerTryTimeout` can stop a slow try. A panic rolls back and panics again without retry. `Manager` works here because it is a `Beginner`.
+`retry.New` returns a `transact.Option`, so it goes next to the other options. Each try runs through `transact.Run`: a failed try is rolled back before the next one starts. `PerTryTimeout` bounds begin and commit, not the callback — queries use your context. A panic rolls back and panics again without retry.
 
 ## Writing an adapter
 
