@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/lweck/transact"
+	"github.com/lrweck/transact"
 )
 
 // Pool is implemented by *pgxpool.Pool and *pgx.Conn.

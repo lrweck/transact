@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/lweck/transact"
+	"github.com/lrweck/transact"
 )
 
 func TestTxOptionsMapping(t *testing.T) {

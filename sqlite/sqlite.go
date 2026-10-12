@@ -6,8 +6,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/lweck/transact"
-	transactstdlib "github.com/lweck/transact/stdlib"
+	"github.com/lrweck/transact"
+	transactstdlib "github.com/lrweck/transact/stdlib"
 )
 
 // Tx is a SQLite transaction or savepoint.

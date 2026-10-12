@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/lweck/transact"
+	"github.com/lrweck/transact"
 )
 
 // DB is implemented by *sql.DB.

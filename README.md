@@ -6,10 +6,10 @@ Transactions for Go database code. The callback gets the driver's native transac
 
 | Module | Import | Depends on |
 | --- | --- | --- |
-| core | `github.com/lweck/transact` | nothing |
-| pgx | `github.com/lweck/transact/pgx` | `pgx/v5` |
-| database/sql | `github.com/lweck/transact/stdlib` | nothing (works with any `database/sql` driver) |
-| SQLite | `github.com/lweck/transact/sqlite` | `modernc.org/sqlite` |
+| core | `github.com/lrweck/transact` | nothing |
+| pgx | `github.com/lrweck/transact/pgx` | `pgx/v5` |
+| database/sql | `github.com/lrweck/transact/stdlib` | nothing (works with any `database/sql` driver) |
+| SQLite | `github.com/lrweck/transact/sqlite` | `modernc.org/sqlite` |
 
 Install only the one you use.
 

@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"testing"
 
-	"github.com/lweck/transact"
+	"github.com/lrweck/transact"
 )
 
 func TestIsolationMapping(t *testing.T) {

@@ -1,3 +1,3 @@
-module github.com/lweck/transact
+module github.com/lrweck/transact
 
 go 1.27.1

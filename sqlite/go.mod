@@ -1,4 +1,4 @@
-module github.com/lweck/transact/sqlite
+module github.com/lrweck/transact/sqlite
 
 go 1.27.1
 

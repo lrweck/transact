@@ -1,4 +1,4 @@
-module github.com/lweck/transact/pgx
+module github.com/lrweck/transact/pgx
 
 go 1.27.1
 
