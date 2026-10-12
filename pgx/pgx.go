@@ -7,14 +7,17 @@ import (
 	"github.com/lrweck/transact"
 )
 
-// Pool is implemented by *pgxpool.Pool and *pgx.Conn.
+// Pool starts pgx transactions. It is implemented by *pgxpool.Pool and *pgx.Conn.
 type Pool interface {
 	BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error)
 }
 
-// Tx wraps pgx.Tx. Its Begin starts a savepoint, so it can nest.
+// Tx is a pgx transaction. It embeds pgx.Tx, so all query methods are available.
+// Its Begin starts a savepoint, so transactions can nest.
 type Tx struct{ pgx.Tx }
 
+// Begin starts a savepoint inside the transaction. Options are ignored because
+// isolation and access mode cannot change inside a savepoint.
 func (t Tx) Begin(ctx context.Context, _ transact.Options) (Tx, error) {
 	sub, err := t.Tx.Begin(ctx)
 	if err != nil {
@@ -23,15 +26,16 @@ func (t Tx) Begin(ctx context.Context, _ transact.Options) (Tx, error) {
 	return Tx{sub}, nil
 }
 
-// Sub runs fn inside a savepoint.
+// Sub runs fn inside a savepoint. When fn fails, only its work is rolled
+// back and the error is returned. The outer transaction keeps going.
 func (t Tx) Sub(ctx context.Context, fn func(Tx) error, opts ...transact.Option) error {
 	return transact.Run(ctx, t, fn, opts...)
 }
 
-// Manager is a transact.Manager bound to pgx.
+// Manager is a transact.Manager for pgx. Embed it in your repository to get Run.
 type Manager = transact.Manager[Tx]
 
-// New returns a Manager for pool.
+// New returns a Manager for pool. The options are defaults for every Run.
 func New(pool Pool, opts ...transact.Option) *Manager {
 	return transact.New[Tx](beginner{pool}, opts...)
 }

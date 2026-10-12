@@ -9,12 +9,14 @@ import (
 	"github.com/lrweck/transact"
 )
 
-// DB is implemented by *sql.DB.
+// DB starts database/sql transactions. It is implemented by *sql.DB.
 type DB interface {
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 }
 
-// Tx wraps *sql.Tx. When sp is set, the Tx is a savepoint inside the outer transaction.
+// Tx is a database/sql transaction. It embeds *sql.Tx, so all query methods
+// are available. When it holds a savepoint, Commit releases it and Rollback
+// rolls back to it instead of ending the whole transaction.
 type Tx struct {
 	*sql.Tx
 	sp string
@@ -22,7 +24,8 @@ type Tx struct {
 
 var savepointSeq atomic.Uint64
 
-// Begin starts a savepoint. Commit releases it and Rollback rolls back to it.
+// Begin starts a savepoint inside the transaction. Options are ignored because
+// isolation and access mode cannot change inside a savepoint.
 func (t Tx) Begin(ctx context.Context, _ transact.Options) (Tx, error) {
 	name := fmt.Sprintf("transact_sp_%d", savepointSeq.Add(1))
 	if _, err := t.ExecContext(ctx, "SAVEPOINT "+name); err != nil {
@@ -31,6 +34,8 @@ func (t Tx) Begin(ctx context.Context, _ transact.Options) (Tx, error) {
 	return Tx{Tx: t.Tx, sp: name}, nil
 }
 
+// Commit commits the transaction. When the Tx holds a savepoint, it only
+// releases the savepoint and the outer transaction keeps going.
 func (t Tx) Commit(ctx context.Context) error {
 	if t.sp != "" {
 		_, err := t.ExecContext(ctx, "RELEASE SAVEPOINT "+t.sp)
@@ -39,6 +44,8 @@ func (t Tx) Commit(ctx context.Context) error {
 	return t.Tx.Commit()
 }
 
+// Rollback rolls back the transaction. When the Tx holds a savepoint, it
+// only rolls back to the savepoint and the outer transaction keeps going.
 func (t Tx) Rollback(ctx context.Context) error {
 	if t.sp != "" {
 		_, err := t.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+t.sp)
@@ -47,15 +54,16 @@ func (t Tx) Rollback(ctx context.Context) error {
 	return t.Tx.Rollback()
 }
 
-// Sub runs fn inside a savepoint.
+// Sub runs fn inside a savepoint. When fn fails, only its work is rolled
+// back and the error is returned. The outer transaction keeps going.
 func (t Tx) Sub(ctx context.Context, fn func(Tx) error, opts ...transact.Option) error {
 	return transact.Run(ctx, t, fn, opts...)
 }
 
-// Manager is a transact.Manager bound to database/sql.
+// Manager is a transact.Manager for database/sql. Embed it in your repository to get Run.
 type Manager = transact.Manager[Tx]
 
-// New returns a Manager for db.
+// New returns a Manager for db. The options are defaults for every Run.
 func New(db DB, opts ...transact.Option) *Manager {
 	return transact.New[Tx](beginner{db}, opts...)
 }
