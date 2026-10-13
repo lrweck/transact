@@ -1,0 +1,65 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt-ed:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [".", pgx, stdlib, sqlite, retry]
+    env:
+      # Each module is checked on its own, the way a user installs it.
+      GOWORK: "off"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
+      - name: vet
+        run: go -C "${{ matrix.module }}" vet ./...
+      - name: test
+        run: go -C "${{ matrix.module }}" test -race -count=1 -cover ./...
+
+  integration:
+    runs-on: ubuntu-latest
+    env:
+      GOWORK: "off"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
+      - name: vet (integration tag)
+        run: go -C integration vet -tags integration ./...
+      - name: test against real databases
+        run: go -C integration test -tags integration -count=1 -timeout 15m ./...
