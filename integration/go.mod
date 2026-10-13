@@ -5,11 +5,11 @@ go 1.27.1
 require (
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/lrweck/transact v0.1.0
-	github.com/lrweck/transact/pgx v0.1.0
-	github.com/lrweck/transact/retry v0.1.0
-	github.com/lrweck/transact/sqlite v0.1.0
-	github.com/lrweck/transact/stdlib v0.1.0
+	github.com/lrweck/transact v1.0.0
+	github.com/lrweck/transact/pgx v1.0.0
+	github.com/lrweck/transact/retry v1.0.0
+	github.com/lrweck/transact/sqlite v1.0.0
+	github.com/lrweck/transact/stdlib v1.0.0
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/mysql v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0

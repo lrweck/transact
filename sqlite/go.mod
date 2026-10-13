@@ -3,8 +3,8 @@ module github.com/lrweck/transact/sqlite
 go 1.27.1
 
 require (
-	github.com/lrweck/transact v0.1.0
-	github.com/lrweck/transact/stdlib v0.1.0
+	github.com/lrweck/transact v1.0.0
+	github.com/lrweck/transact/stdlib v1.0.0
 	modernc.org/sqlite v1.60.1
 )
 
