@@ -167,9 +167,11 @@ m.Run(ctx, func(tx transactpgx.Tx) error { ... }) // fails? Tries again. Clean s
 
 ---
 
-## Test it against the real thing
+## Writing an adapter (and proving it works)
 
-`transacttest.Conformance` is the contract every adapter has to meet. Commit, rollback on error, rollback on panic, savepoints keeping or dropping their work, savepoints rejecting options. Pass it four small functions and a table with one integer column:
+An adapter implements `transact.Beginner[T]` for your pool, where `T` has `Commit(ctx)` and `Rollback(ctx)`. For subtransactions, `T` also implements `Begin(ctx, transact.Options) (T, error)`. The smallest example is `pgx/pgx.go`.
+
+Then run `transacttest.Conformance` against it. It checks the whole contract against a real database: commit, rollback on error, rollback on panic, savepoints keeping or dropping their work, and savepoints rejecting options. You give it four small functions and a table with one integer column:
 
 ```go
 transacttest.Conformance(t, transacttest.Store[transactstdlib.Tx]{
@@ -180,19 +182,7 @@ transacttest.Conformance(t, transacttest.Store[transactstdlib.Tx]{
 })
 ```
 
-Writing your own adapter? Run this on it first. If it passes, you're done. If it doesn't, you just found the bug before your users did.
-
----
-
-## Writing an adapter
-
-An adapter implements `transact.Beginner[T]` for your pool, where `T` has `Commit(ctx)` and `Rollback(ctx)`. For subtransactions, `T` also implements `Begin(ctx, transact.Options) (T, error)`. See `pgx/pgx.go` for the smallest example. Then run `transacttest.Conformance` on it. Easy.
-
----
-
-## Design notes (the honest part)
-
-The retry loop lives in the core `Run`, not in the `retry` module. A `Beginner` wraps one `Begin` call, and retry has to wrap the whole `Run`: begin, callback, commit, rollback. So the core owns the loop, and `retry` is just the friendly constructor that builds the policy. No database dependencies, no surprises, no extra downloads.
+Passes? Your adapter is done. Fails? You just found the bug before your users did.
 
 ---
 
