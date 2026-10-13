@@ -1,21 +1,31 @@
 # transact
 
-Transactions for Go database code. The callback gets the driver's native transaction, so any query layer works: sqlc, raw SQL, pgx batches, or your own builder.
+### Tired of transactions that just don't stick?
+
+Commit. Rollback. Savepoints. Retries. **All of it, in one callback.**
+
+transact is the transaction layer your database code has been begging for. Hand it a pool, hand it a function, and walk away. It begins the transaction, runs your queries, commits on success, and rolls back the instant something goes wrong. Panic in the middle? Rolled back. Serialization failure? Retried. A nested piece of work fails? Only that piece is undone.
+
+**It works with EVERYTHING.** sqlc. Raw SQL. pgx batches. Your homemade query builder from 2019. If it can run on the transaction, it runs inside transact. No glue. No adapters for your query layer. Just the native transaction, handed to you, warm.
+
+---
 
 ## Modules
 
+Install only what you use. Nothing is bundled. Nothing sneaks in.
+
 | Module | Import | Depends on |
 | --- | --- | --- |
-| core | `github.com/lrweck/transact` | nothing |
+| core | `github.com/lrweck/transact` | nothing. Zero. Nada. |
 | pgx | `github.com/lrweck/transact/pgx` | `pgx/v5` |
-| database/sql | `github.com/lrweck/transact/stdlib` | nothing (works with any `database/sql` driver) |
+| database/sql | `github.com/lrweck/transact/stdlib` | nothing (any `database/sql` driver: MySQL, Postgres, SQLite, you name it) |
 | SQLite | `github.com/lrweck/transact/sqlite` | `modernc.org/sqlite` |
 | retry | `github.com/lrweck/transact/retry` | nothing (core only) |
 | integration | `github.com/lrweck/transact/integration` | testcontainers (tests only, tag `integration`) |
 
-Install only the one you use.
+---
 
-## Usage
+## See it work
 
 ### PostgreSQL with pgx
 
@@ -27,32 +37,32 @@ type Repo struct {
 
 func NewRepo(pool *pgxpool.Pool) *Repo {
     return &Repo{
-        Manager: transactpgx.New(pool, transact.WithIsoLevel(transact.LevelReadCommitted)), // default for this repo
+        Manager: transactpgx.New(pool, transact.WithIsoLevel(transact.LevelReadCommitted)), // your default, set once
         q:       gen.New(pool),
     }
 }
 
 func (r *Repo) Transfer(ctx context.Context, from, to int64, v int) error {
-    ctx, cancel := context.WithTimeout(ctx, 5*time.Second) // timeouts come from the context
+    ctx, cancel := context.WithTimeout(ctx, 5*time.Second) // timeouts? Your context. Obviously.
     defer cancel()
 
     return r.Run(ctx, func(tx transactpgx.Tx) error {
         q := gen.New(tx)
         if err := debit(ctx, q, from, v); err != nil {
-            return err
+            return err // rolled back. Automatically. Before you finish your coffee.
         }
-        return tx.Sub(ctx, func(sub transactpgx.Tx) error { // savepoint
+        return tx.Sub(ctx, func(sub transactpgx.Tx) error { // a savepoint, for the brave
             return credit(ctx, gen.New(sub), to, v)
         })
-    }, transact.WithIsoLevel(transact.LevelSerializable)) // per-call override
+    }, transact.WithIsoLevel(transact.LevelSerializable)) // per-call override. Because you're worth it.
 }
 ```
 
-### MySQL (or Postgres) with database/sql
+### MySQL (or any database/sql driver) with database/sql
 
 ```go
 import (
-    _ "github.com/go-sql-driver/mysql" // or pgx/stdlib, modernc.org/sqlite
+    _ "github.com/go-sql-driver/mysql" // or pgx/stdlib, or modernc.org/sqlite
     transactstdlib "github.com/lrweck/transact/stdlib"
 )
 
@@ -73,7 +83,7 @@ func (r *Repo) Transfer(ctx context.Context, from, to string, amount int) error 
     defer cancel()
 
     return r.Run(ctx, func(tx transactstdlib.Tx) error {
-        q := gen.New(tx) // *sql.Tx satisfies sqlc and all query methods
+        q := gen.New(tx) // *sql.Tx slides right into sqlc. No questions asked.
         if err := debit(ctx, q, from, amount); err != nil {
             return err
         }
@@ -84,9 +94,13 @@ func (r *Repo) Transfer(ctx context.Context, from, to string, amount int) error 
 }
 ```
 
-`Run` begins a transaction, calls the callback, then commits. It rolls back if the callback returns an error or panics.
+That's it. No ceremony. No boilerplate. No "just one more wrapper."
 
-Options are values. Options set on `New` are defaults; options passed to `Run` override them for that call. `JoinOptions` merges sets by hand — properties set later win, so an explicit default overrides an earlier value:
+---
+
+## Options that actually stick
+
+Options are plain values. Set them once on `New`. Override them per call. Done.
 
 ```go
 opts := transact.JoinOptions(
@@ -95,24 +109,34 @@ opts := transact.JoinOptions(
 )
 ```
 
-`Manager` is itself a `Beginner`, so you can pass it anywhere a `Beginner` works, like `transact.Run` or another `Manager`.
+Later options win, property by property, like `encoding/json/v2` (no, really). An explicit default overrides an earlier value, so you can always say "actually, no" and mean it.
 
-## Subtransactions
+`Manager` is itself a `Beginner`. Drop it anywhere a `Beginner` goes: `transact.Run`, another `Manager`, your tests, your dreams.
 
-`tx.Sub` runs a callback inside a savepoint. If the callback fails, only its work is rolled back and the outer transaction continues. Supported on PostgreSQL, MySQL (InnoDB), and SQLite.
+---
 
-A savepoint can't change isolation, read-only, or deferrable mode. Passing any of them to `Sub` returns `transact.ErrSavepointOptions` before anything runs.
+## Subtransactions: undo the little mistake, keep the big win
 
-## SQLite
+`tx.Sub` runs a callback inside a savepoint. If it fails, **only its work disappears**. The outer transaction keeps going, unbothered.
+
+Works on **PostgreSQL, MySQL (InnoDB), and SQLite**. Savepoints are the one thing you don't have to hope for.
+
+A savepoint can't change isolation, read-only, or deferrable mode, because the database says so. Try it anyway and you get `transact.ErrSavepointOptions` back before a single byte hits the wire.
+
+---
+
+## SQLite: one writer at a time, and it actually waits its turn
 
 ```go
-db, err := transactsqlite.Open("app.db") // WAL, busy_timeout, foreign_keys, BEGIN IMMEDIATE
+db, err := transactsqlite.Open("app.db") // WAL, busy_timeout, foreign_keys, BEGIN IMMEDIATE. All of it. Pre-set.
 m := transactsqlite.New(db)
 ```
 
-`Open` returns a `*sql.DB` so you can call `Close` and pass it to sqlc.
+`Open` hands you a `*sql.DB`, so `Close` works and sqlc takes it without complaint. A second writer waits up to 5 seconds for its turn instead of crashing into `SQLITE_BUSY` on the spot. Add retry and it gets even more patience.
 
-## Retry
+---
+
+## Retry: the second chance your transaction deserves
 
 ```go
 import transactretry "github.com/lrweck/transact/retry"
@@ -120,25 +144,32 @@ import transactretry "github.com/lrweck/transact/retry"
 m := transactpgx.New(pool,
     transactretry.New(
         transactretry.WithMaxAttempts(5),
-        transactretry.WithBeginCommitTimeout(2*time.Second),  // bounds each try's begin and commit
-        transactretry.WithTotalTimeout(30*time.Second),  // all tries together
-        transactretry.WithRetryIf(func(err error, try int) bool { return isSerializationError(err) }),
+        transactretry.WithBeginCommitTimeout(2*time.Second), // begin + commit get their own clock
+        transactretry.WithTotalTimeout(30*time.Second),      // the whole operation, all tries, one deadline
+        transactretry.WithRetryIf(func(err error, try int) bool {
+            log.Printf("try %d failed: %v", try, err)        // log every failure. Be the hero of your on-call rotation.
+            return isSerializationError(err)
+        }),
         transactretry.WithBackoff(transactretry.ExponentialBackoff(100*time.Millisecond)),
         transactretry.WithJitter(100*time.Millisecond, 2*time.Second),
     ),
     transact.WithIsoLevel(transact.LevelSerializable),
 )
 
-m.Run(ctx, func(tx transactpgx.Tx) error { ... }) // retries on failure
+m.Run(ctx, func(tx transactpgx.Tx) error { ... }) // fails? Tries again. Clean slate every time.
 ```
 
-`retry.New` returns `transact.Options`, so it goes next to the other options. Each try runs through `transact.Run`: a failed try is rolled back before the next one starts. `BeginCommitTimeout` bounds begin and commit, not the callback — queries use your context. A panic rolls back and panics again without retry.
+- Every try goes through `transact.Run`. A failed try is rolled back before the next one starts. No half-written mess follows you around.
+- Waits are cancelable. Your context stops the sleep dead, mid-nap.
+- A panic rolls back and panics again. Retry doesn't hide bugs. It just keeps the database tidy while you fix them.
 
-## Writing an adapter
+`BeginCommitTimeout` bounds begin and commit. Queries use your context. Yes, you're in charge. That's the point.
 
-An adapter implements `transact.Beginner[T]` for your pool, where `T` has `Commit(ctx)` and `Rollback(ctx)`. For nesting, `T` must also implement `Begin(ctx, transact.Options) (T, error)`. See `pgx/pgx.go` for the smallest example.
+---
 
-Check your adapter with `transacttest.Conformance`. It runs the contract every adapter must meet: commit, rollback on error and on panic, savepoints keeping or dropping their work, and savepoints rejecting options. You give it a `Store` with four small functions (reset, insert, count) against a table with one integer column:
+## Test it against the real thing
+
+`transacttest.Conformance` is the contract every adapter has to meet. Commit, rollback on error, rollback on panic, savepoints keeping or dropping their work, savepoints rejecting options. Pass it four small functions and a table with one integer column:
 
 ```go
 transacttest.Conformance(t, transacttest.Store[transactstdlib.Tx]{
@@ -149,8 +180,28 @@ transacttest.Conformance(t, transacttest.Store[transactstdlib.Tx]{
 })
 ```
 
-The suite runs against a real database, so put it in your adapter's integration tests.
+Writing your own adapter? Run this on it first. If it passes, you're done. If it doesn't, you just found the bug before your users did.
 
-## Design notes
+---
 
-The retry loop lives in the core `Run`, not in the `retry` module. A `Beginner` wraps one `Begin` call, and retry has to wrap the whole `Run` (begin, callback, commit, rollback). So the core owns the loop, and `retry` only builds the policy that `Run` reads. The `retry` module stays a small constructor with no database dependencies.
+## Writing an adapter
+
+An adapter implements `transact.Beginner[T]` for your pool, where `T` has `Commit(ctx)` and `Rollback(ctx)`. For subtransactions, `T` also implements `Begin(ctx, transact.Options) (T, error)`. See `pgx/pgx.go` for the smallest example. Then run `transacttest.Conformance` on it. Easy.
+
+---
+
+## Design notes (the honest part)
+
+The retry loop lives in the core `Run`, not in the `retry` module. A `Beginner` wraps one `Begin` call, and retry has to wrap the whole `Run`: begin, callback, commit, rollback. So the core owns the loop, and `retry` is just the friendly constructor that builds the policy. No database dependencies, no surprises, no extra downloads.
+
+---
+
+### Ready to stop losing transactions?
+
+```sh
+go get github.com/lrweck/transact
+```
+
+Pick your adapter. Write your callback. **Let it run.**
+
+*Transactions: now with 100% more rollback.*
