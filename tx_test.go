@@ -277,15 +277,15 @@ func TestRunRetryIfSeesTryNumber(t *testing.T) {
 	}
 }
 
-func TestRunRetrySetsPerTryAndTotalDeadlines(t *testing.T) {
+func TestRunRetrySetsBeginCommitAndTotalDeadlines(t *testing.T) {
 	b := &fakeBeginner{}
 	err := Run(t.Context(), b, func(fakeTx) error { return nil },
-		WithRetry(RetryPolicy{MaxAttempts: 1, PerTryTimeout: time.Second}))
+		WithRetry(RetryPolicy{MaxAttempts: 1, BeginCommitTimeout: time.Second}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !b.deadline {
-		t.Fatal("begin got no deadline with PerTryTimeout")
+		t.Fatal("begin got no deadline with BeginCommitTimeout")
 	}
 	b = &fakeBeginner{}
 	err = Run(t.Context(), b, func(fakeTx) error { return nil },
@@ -306,11 +306,11 @@ func (b *blockingBeginner) Begin(ctx context.Context, _ Options) (fakeTx, error)
 	return fakeTx{}, ctx.Err()
 }
 
-func TestRunRetryPerTryTimeoutFires(t *testing.T) {
+func TestRunRetryBeginCommitTimeoutFires(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		b := &blockingBeginner{}
 		err := Run(t.Context(), b, func(fakeTx) error { return nil },
-			WithRetry(RetryPolicy{MaxAttempts: 2, PerTryTimeout: 10 * time.Millisecond}))
+			WithRetry(RetryPolicy{MaxAttempts: 2, BeginCommitTimeout: 10 * time.Millisecond}))
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("err = %v, want context.DeadlineExceeded", err)
 		}

@@ -118,7 +118,7 @@ import transactretry "github.com/lrweck/transact/retry"
 m := transactpgx.New(pool,
     transactretry.New(
         transactretry.WithMaxAttempts(5),
-        transactretry.WithPerTryTimeout(2*time.Second),  // bounds each try's begin and commit
+        transactretry.WithBeginCommitTimeout(2*time.Second),  // bounds each try's begin and commit
         transactretry.WithTotalTimeout(30*time.Second),  // all tries together
         transactretry.WithRetryIf(func(err error, try int) bool { return isSerializationError(err) }),
         transactretry.WithBackoff(transactretry.ExponentialBackoff(100*time.Millisecond)),
@@ -130,7 +130,7 @@ m := transactpgx.New(pool,
 m.Run(ctx, func(tx transactpgx.Tx) error { ... }) // retries on failure
 ```
 
-`retry.New` returns `transact.Options`, so it goes next to the other options. Each try runs through `transact.Run`: a failed try is rolled back before the next one starts. `PerTryTimeout` bounds begin and commit, not the callback — queries use your context. A panic rolls back and panics again without retry.
+`retry.New` returns `transact.Options`, so it goes next to the other options. Each try runs through `transact.Run`: a failed try is rolled back before the next one starts. `BeginCommitTimeout` bounds begin and commit, not the callback — queries use your context. A panic rolls back and panics again without retry.
 
 ## Writing an adapter
 

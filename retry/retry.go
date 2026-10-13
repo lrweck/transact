@@ -17,13 +17,13 @@ import (
 type RetryOption func(*policy)
 
 type policy struct {
-	maxAttempts   int
-	perTryTimeout time.Duration
-	totalTimeout  time.Duration
-	retryIf       func(error, int) bool
-	backoff       Backoff
-	jitterMin     time.Duration
-	jitterMax     time.Duration
+	maxAttempts        int
+	beginCommitTimeout time.Duration
+	totalTimeout       time.Duration
+	retryIf            func(error, int) bool
+	backoff            Backoff
+	jitterMin          time.Duration
+	jitterMax          time.Duration
 }
 
 // WithMaxAttempts sets the total number of tries, including the first one.
@@ -32,10 +32,10 @@ func WithMaxAttempts(n int) RetryOption {
 	return func(o *policy) { o.maxAttempts = n }
 }
 
-// WithPerTryTimeout bounds each try's begin and commit. It does not bound
+// WithBeginCommitTimeout bounds each try's begin and commit. It does not bound
 // the callback: queries use your context. Zero or less means no limit.
-func WithPerTryTimeout(d time.Duration) RetryOption {
-	return func(o *policy) { o.perTryTimeout = d }
+func WithBeginCommitTimeout(d time.Duration) RetryOption {
+	return func(o *policy) { o.beginCommitTimeout = d }
 }
 
 // WithTotalTimeout bounds the whole operation, all tries together.
@@ -103,11 +103,11 @@ func New(opts ...RetryOption) transact.Options {
 		fn(&p)
 	}
 	return transact.WithRetry(transact.RetryPolicy{
-		MaxAttempts:   p.maxAttempts,
-		PerTryTimeout: p.perTryTimeout,
-		TotalTimeout:  p.totalTimeout,
-		RetryIf:       p.retryIf,
-		Wait:          composeWait(p.backoff, p.jitterMin, p.jitterMax),
+		MaxAttempts:        p.maxAttempts,
+		BeginCommitTimeout: p.beginCommitTimeout,
+		TotalTimeout:       p.totalTimeout,
+		RetryIf:            p.retryIf,
+		Wait:               composeWait(p.backoff, p.jitterMin, p.jitterMax),
 	})
 }
 

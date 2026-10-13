@@ -76,7 +76,7 @@ func runRetry[T Tx](ctx context.Context, b Beginner[T], fn func(T) error, o Opti
 			return fmt.Errorf("transact: gave up after %d attempt(s): %w", tries, ctxErr)
 		}
 		tries++
-		err = tryOnce(ctx, b, fn, o, p.PerTryTimeout)
+		err = tryOnce(ctx, b, fn, o, p.BeginCommitTimeout)
 		if err == nil {
 			return nil
 		}

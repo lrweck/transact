@@ -132,15 +132,15 @@ func TestNewDefaultsToOneTry(t *testing.T) {
 	}
 }
 
-func TestNewSetsPerTryAndTotalDeadlines(t *testing.T) {
+func TestNewSetsBeginCommitAndTotalDeadlines(t *testing.T) {
 	b := &fakeBeginner{}
 	err := transact.Run(t.Context(), b, func(fakeTx) error { return nil },
-		New(WithMaxAttempts(1), WithPerTryTimeout(time.Second)))
+		New(WithMaxAttempts(1), WithBeginCommitTimeout(time.Second)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !b.deadline {
-		t.Fatal("begin got no deadline with PerTryTimeout")
+		t.Fatal("begin got no deadline with BeginCommitTimeout")
 	}
 	b = &fakeBeginner{}
 	err = transact.Run(t.Context(), b, func(fakeTx) error { return nil },

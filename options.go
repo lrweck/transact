@@ -107,9 +107,9 @@ type RetryPolicy struct {
 	// MaxAttempts is the total number of tries, including the first one.
 	// Values below 1 mean 1, a single try with no retry.
 	MaxAttempts int
-	// PerTryTimeout bounds each try's begin and commit. It does not bound
+	// BeginCommitTimeout bounds each try's begin and commit. It does not bound
 	// the callback: queries use your context. Zero or less means no limit.
-	PerTryTimeout time.Duration
+	BeginCommitTimeout time.Duration
 	// TotalTimeout bounds the whole operation, all tries together.
 	// Zero or less means no limit.
 	TotalTimeout time.Duration

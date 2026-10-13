@@ -8,7 +8,7 @@ import transactretry "github.com/lrweck/transact/retry"
 m := transactpgx.New(pool,
     transactretry.New(
         transactretry.WithMaxAttempts(5),
-        transactretry.WithPerTryTimeout(2*time.Second),
+        transactretry.WithBeginCommitTimeout(2*time.Second),
         transactretry.WithTotalTimeout(30*time.Second),
         transactretry.WithRetryIf(func(err error, try int) bool { return isTransient(err) }),
         transactretry.WithBackoff(transactretry.ExponentialBackoff(100*time.Millisecond)),
@@ -27,7 +27,7 @@ Each try runs through `transact.Run`, so a failed try is rolled back before the 
 | RetryOption | Meaning |
 | --- | --- |
 | `WithMaxAttempts` | Total tries, including the first. Below 1 means 1 (no retry). Default is 1. |
-| `WithPerTryTimeout` | Bounds each try's begin and commit, not the callback: queries use your context. Zero means none. |
+| `WithBeginCommitTimeout` | Bounds each try's begin and commit, not the callback: queries use your context. Zero means none. |
 | `WithTotalTimeout` | Timeout for all tries together. Zero means none. |
 | `WithRetryIf` | Sets the matcher for retryable errors. The last call wins. The matcher gets the error and the 1-based failed try number. Nil retries every error. |
 | `WithBackoff` | Wait strategy between tries. Default is no wait. |
