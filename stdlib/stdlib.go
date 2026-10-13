@@ -40,6 +40,10 @@ func (t Tx) Begin(ctx context.Context, opts transact.Options) (Tx, error) {
 
 // Commit commits the transaction. When the Tx holds a savepoint, it only
 // releases the savepoint and the outer transaction keeps going.
+//
+// Limit: a root commit goes through *sql.Tx.Commit, which takes no context.
+// Once Commit starts, ctx cannot cancel it. Use ctx to stop the work before
+// Commit, not during it.
 func (t Tx) Commit(ctx context.Context) error {
 	if t.sp != "" {
 		_, err := t.ExecContext(ctx, "RELEASE SAVEPOINT "+t.sp)
