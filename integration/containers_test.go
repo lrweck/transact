@@ -83,6 +83,7 @@ func execSchema(ctx context.Context) {
 	for _, q := range []string{
 		"CREATE TABLE IF NOT EXISTS kv (k VARCHAR(64) PRIMARY KEY, v INTEGER NOT NULL)",
 		"CREATE TABLE IF NOT EXISTS acct (id INTEGER PRIMARY KEY, bal INTEGER NOT NULL)",
+		"CREATE TABLE IF NOT EXISTS conf (id INTEGER PRIMARY KEY)",
 	} {
 		if _, err := pgPool.Exec(ctx, q); err != nil {
 			log.Fatalf("pg schema: %v", err)
