@@ -113,7 +113,7 @@ func TestMySQLRetryOnDeadlock(t *testing.T) {
 	done := make(chan error, 2)
 	go func() { done <- runTx(1, 2, s1, s2) }()
 	go func() { done <- runTx(2, 1, s2, s1) }()
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		select {
 		case err := <-done:
 			if err != nil {
