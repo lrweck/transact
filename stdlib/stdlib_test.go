@@ -285,3 +285,22 @@ func TestSubKeepsOuterTxOnError(t *testing.T) {
 		t.Fatalf("execs = %v, want SAVEPOINT and ROLLBACK TO", c.execs)
 	}
 }
+
+func TestSavepointRejectsTxOptions(t *testing.T) {
+	for _, opt := range []transact.Options{
+		transact.JoinOptions(transact.WithIsoLevel(transact.LevelSerializable)),
+		transact.JoinOptions(transact.WithReadOnly()),
+		transact.JoinOptions(transact.WithDeferrable(transact.Deferred)),
+	} {
+		c := &fakeConn{}
+		db := openFakeDB(c)
+		tx := Tx{Tx: mustBegin(t, db)}
+		if _, err := tx.Begin(t.Context(), opt); !errors.Is(err, transact.ErrSavepointOptions) {
+			t.Fatalf("err = %v, want ErrSavepointOptions", err)
+		}
+		if len(c.execs) != 0 {
+			t.Fatalf("savepoint was started anyway: %v", c.execs)
+		}
+		db.Close()
+	}
+}

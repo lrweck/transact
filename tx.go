@@ -2,9 +2,15 @@ package transact
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
+
+// ErrSavepointOptions is returned when a subtransaction gets isolation,
+// read-only, or deferrable options. A savepoint runs inside its parent
+// transaction, so those cannot change.
+var ErrSavepointOptions = errors.New("transact: isolation, read-only and deferrable cannot change inside a savepoint")
 
 // Tx is the smallest transaction handle. It can commit or roll back.
 type Tx interface {

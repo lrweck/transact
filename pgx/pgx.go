@@ -16,9 +16,13 @@ type Pool interface {
 // Its Begin starts a savepoint, so transactions can nest.
 type Tx struct{ pgx.Tx }
 
-// Begin starts a savepoint inside the transaction. Options are ignored because
-// isolation and access mode cannot change inside a savepoint.
-func (t Tx) Begin(ctx context.Context, _ transact.Options) (Tx, error) {
+// Begin starts a savepoint inside the transaction. It returns
+// transact.ErrSavepointOptions if opts set isolation, read-only, or deferrable,
+// since a savepoint cannot change them.
+func (t Tx) Begin(ctx context.Context, opts transact.Options) (Tx, error) {
+	if opts.IsoLevel() != transact.LevelDefault || opts.ReadOnly() || opts.Deferrable() != transact.DeferrableDefault {
+		return Tx{}, transact.ErrSavepointOptions
+	}
 	sub, err := t.Tx.Begin(ctx)
 	if err != nil {
 		return Tx{}, err

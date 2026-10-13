@@ -24,9 +24,13 @@ type Tx struct {
 
 var savepointSeq atomic.Uint64
 
-// Begin starts a savepoint inside the transaction. Options are ignored because
-// isolation and access mode cannot change inside a savepoint.
-func (t Tx) Begin(ctx context.Context, _ transact.Options) (Tx, error) {
+// Begin starts a savepoint inside the transaction. It returns
+// transact.ErrSavepointOptions if opts set isolation, read-only, or deferrable,
+// since a savepoint cannot change them.
+func (t Tx) Begin(ctx context.Context, opts transact.Options) (Tx, error) {
+	if opts.IsoLevel() != transact.LevelDefault || opts.ReadOnly() || opts.Deferrable() != transact.DeferrableDefault {
+		return Tx{}, transact.ErrSavepointOptions
+	}
 	name := fmt.Sprintf("transact_sp_%d", savepointSeq.Add(1))
 	if _, err := t.ExecContext(ctx, "SAVEPOINT "+name); err != nil {
 		return Tx{}, err

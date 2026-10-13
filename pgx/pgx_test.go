@@ -155,3 +155,20 @@ func TestSubCommitsAndRollsBack(t *testing.T) {
 		t.Fatalf("err = %v, want boom", err)
 	}
 }
+
+func TestSavepointRejectsTxOptions(t *testing.T) {
+	for _, opt := range []transact.Options{
+		transact.JoinOptions(transact.WithIsoLevel(transact.LevelSerializable)),
+		transact.JoinOptions(transact.WithReadOnly()),
+		transact.JoinOptions(transact.WithDeferrable(transact.Deferred)),
+	} {
+		var log []string
+		tx := Tx{&fakeInnerTx{log: &log}}
+		if _, err := tx.Begin(t.Context(), opt); !errors.Is(err, transact.ErrSavepointOptions) {
+			t.Fatalf("err = %v, want ErrSavepointOptions", err)
+		}
+		if len(log) != 0 {
+			t.Fatalf("savepoint was started anyway: %v", log)
+		}
+	}
+}
