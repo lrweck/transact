@@ -3,7 +3,6 @@
 package integration
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"path/filepath"
@@ -32,7 +31,7 @@ func openFileDB(t *testing.T, name string) *sql.DB {
 func TestSQLiteSubRollbackKeepsOuter(t *testing.T) {
 	db := openFileDB(t, "sub.db")
 	m := transactsqlite.New(db)
-	ctx := context.Background()
+	ctx := t.Context()
 	err := m.Run(ctx, func(tx transactsqlite.Tx) error {
 		if _, err := tx.ExecContext(ctx, "INSERT INTO kv (k, v) VALUES ('a', 1)"); err != nil {
 			return err
@@ -94,7 +93,7 @@ func TestSQLiteRetryOnBusy(t *testing.T) {
 
 	// Note: contention fails at BEGIN, before fn runs. Count attempts in the
 	// matcher: it sees every failed try, including Begin failures.
-	ctx := context.Background()
+	ctx := t.Context()
 	maxTry := 0
 	m2 := transactsqlite.New(db2)
 	err = m2.Run(ctx, func(tx transactsqlite.Tx) error {

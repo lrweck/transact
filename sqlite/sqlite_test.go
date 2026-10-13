@@ -1,7 +1,6 @@
 package transactsqlite
 
 import (
-	"context"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -17,7 +16,7 @@ func TestSubRollbackKeepsOuterWork(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	m := New(db)
 	boom := errors.New("boom")
 	err = m.Run(ctx, func(tx Tx) error {

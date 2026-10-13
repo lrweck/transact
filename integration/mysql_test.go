@@ -3,7 +3,6 @@
 package integration
 
 import (
-	"context"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -21,7 +20,7 @@ func isDeadlock(err error, _ int) bool {
 
 func TestMySQLRunCommits(t *testing.T) {
 	cleanMy(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	m := transactstdlib.New(myDB)
 	err := m.Run(ctx, func(tx transactstdlib.Tx) error {
 		_, err := tx.ExecContext(ctx, "INSERT INTO kv (k, v) VALUES ('a', 1)")
@@ -41,7 +40,7 @@ func TestMySQLRunCommits(t *testing.T) {
 
 func TestMySQLSubRollbackKeepsOuter(t *testing.T) {
 	cleanMy(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	m := transactstdlib.New(myDB)
 	err := m.Run(ctx, func(tx transactstdlib.Tx) error {
 		if _, err := tx.ExecContext(ctx, "INSERT INTO kv (k, v) VALUES ('a', 1)"); err != nil {
@@ -71,7 +70,7 @@ func TestMySQLSubRollbackKeepsOuter(t *testing.T) {
 
 func TestMySQLRetryOnDeadlock(t *testing.T) {
 	cleanMy(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	if _, err := myDB.ExecContext(ctx, "INSERT INTO acct (id, bal) VALUES (1, 100), (2, 200)"); err != nil {
 		t.Fatal(err)
 	}

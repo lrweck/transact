@@ -112,14 +112,14 @@ func TestBeginnerBeginPassesOptions(t *testing.T) {
 	c := &fakeConn{}
 	db := openFakeDB(c)
 	defer db.Close()
-	tx, err := beginner{db}.Begin(context.Background(), transact.JoinOptions(
+	tx, err := beginner{db}.Begin(t.Context(), transact.JoinOptions(
 		transact.WithIsoLevel(transact.LevelSerializable),
 		transact.WithReadOnly(),
 	))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(context.Background())
+	defer tx.Rollback(t.Context())
 	if tx.Tx == nil || tx.sp != "" {
 		t.Fatal("expected a root tx without savepoint")
 	}
@@ -133,7 +133,7 @@ func TestBeginnerBeginError(t *testing.T) {
 	db := openFakeDB(c)
 	defer db.Close()
 	b := beginner{db}
-	if _, err := b.Begin(context.Background(), transact.Options{}); err == nil {
+	if _, err := b.Begin(t.Context(), transact.Options{}); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -143,14 +143,14 @@ func TestSavepointCommitReleases(t *testing.T) {
 	db := openFakeDB(c)
 	defer db.Close()
 	tx := Tx{Tx: mustBegin(t, db)}
-	sub, err := tx.Begin(context.Background(), transact.Options{})
+	sub, err := tx.Begin(t.Context(), transact.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sub.sp == "" {
 		t.Fatal("sub has no savepoint name")
 	}
-	if err := sub.Commit(context.Background()); err != nil {
+	if err := sub.Commit(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if len(c.execs) != 2 || !strings.HasPrefix(c.execs[0], "SAVEPOINT ") || !strings.HasPrefix(c.execs[1], "RELEASE SAVEPOINT ") {
@@ -163,11 +163,11 @@ func TestSavepointRollbackTo(t *testing.T) {
 	db := openFakeDB(c)
 	defer db.Close()
 	tx := Tx{Tx: mustBegin(t, db)}
-	sub, err := tx.Begin(context.Background(), transact.Options{})
+	sub, err := tx.Begin(t.Context(), transact.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sub.Rollback(context.Background()); err != nil {
+	if err := sub.Rollback(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if len(c.execs) != 2 || !strings.HasPrefix(c.execs[1], "ROLLBACK TO SAVEPOINT ") {
@@ -180,7 +180,7 @@ func TestSavepointBeginError(t *testing.T) {
 	db := openFakeDB(c)
 	defer db.Close()
 	tx := Tx{Tx: mustBegin(t, db)}
-	if _, err := tx.Begin(context.Background(), transact.Options{}); err == nil {
+	if _, err := tx.Begin(t.Context(), transact.Options{}); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -190,11 +190,11 @@ func TestSavepointNamesAreUnique(t *testing.T) {
 	db := openFakeDB(c)
 	defer db.Close()
 	tx := Tx{Tx: mustBegin(t, db)}
-	a, err := tx.Begin(context.Background(), transact.Options{})
+	a, err := tx.Begin(t.Context(), transact.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := tx.Begin(context.Background(), transact.Options{})
+	b, err := tx.Begin(t.Context(), transact.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestRootCommitAndRollback(t *testing.T) {
 	db := openFakeDB(c)
 	defer db.Close()
 	root := Tx{Tx: mustBegin(t, db)}
-	if err := root.Commit(context.Background()); err != nil {
+	if err := root.Commit(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if !c.committed {
@@ -222,7 +222,7 @@ func TestRootCommitAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	root2 := Tx{Tx: raw}
-	if err := root2.Rollback(context.Background()); err != nil {
+	if err := root2.Rollback(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if !c2.rolledBack {
@@ -235,7 +235,7 @@ func TestManagerRunCommitsAndRollsBack(t *testing.T) {
 	db := openFakeDB(c)
 	defer db.Close()
 	m := New(db)
-	if err := m.Run(context.Background(), func(Tx) error { return nil }); err != nil {
+	if err := m.Run(t.Context(), func(Tx) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if !c.committed {
@@ -246,7 +246,7 @@ func TestManagerRunCommitsAndRollsBack(t *testing.T) {
 	db2 := openFakeDB(c2)
 	defer db2.Close()
 	m2 := New(db2)
-	if err := m2.Run(context.Background(), func(Tx) error { return boom }); !errors.Is(err, boom) {
+	if err := m2.Run(t.Context(), func(Tx) error { return boom }); !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
 	}
 	if !c2.rolledBack {
@@ -260,8 +260,8 @@ func TestSubKeepsOuterTxOnError(t *testing.T) {
 	defer db.Close()
 	m := New(db)
 	boom := errors.New("boom")
-	err := m.Run(context.Background(), func(tx Tx) error {
-		if err := tx.Sub(context.Background(), func(Tx) error { return boom }); !errors.Is(err, boom) {
+	err := m.Run(t.Context(), func(tx Tx) error {
+		if err := tx.Sub(t.Context(), func(Tx) error { return boom }); !errors.Is(err, boom) {
 			t.Fatalf("sub err = %v, want boom", err)
 		}
 		return nil

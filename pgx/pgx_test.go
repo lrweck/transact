@@ -81,7 +81,7 @@ func TestBeginnerBeginPassesOptions(t *testing.T) {
 	var log []string
 	pool := &fakePool{tx: &fakeInnerTx{log: &log}}
 	b := beginner{pool}
-	tx, err := b.Begin(context.Background(), transact.JoinOptions(
+	tx, err := b.Begin(t.Context(), transact.JoinOptions(
 		transact.WithIsoLevel(transact.LevelSerializable),
 		transact.WithReadOnly(),
 	))
@@ -99,7 +99,7 @@ func TestBeginnerBeginPassesOptions(t *testing.T) {
 func TestBeginnerBeginError(t *testing.T) {
 	pool := &fakePool{err: errors.New("no conn")}
 	b := beginner{pool}
-	if _, err := b.Begin(context.Background(), transact.Options{}); err == nil {
+	if _, err := b.Begin(t.Context(), transact.Options{}); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -108,7 +108,7 @@ func TestTxBeginSavepoint(t *testing.T) {
 	var log []string
 	sub := &fakeInnerTx{log: &log}
 	tx := Tx{&fakeInnerTx{log: &log, sub: sub}}
-	got, err := tx.Begin(context.Background(), transact.Options{})
+	got, err := tx.Begin(t.Context(), transact.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestTxBeginSavepoint(t *testing.T) {
 func TestTxBeginError(t *testing.T) {
 	var log []string
 	tx := Tx{&fakeInnerTx{log: &log, beginErr: errors.New("sp failed")}}
-	if _, err := tx.Begin(context.Background(), transact.Options{}); err == nil {
+	if _, err := tx.Begin(t.Context(), transact.Options{}); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -129,11 +129,11 @@ func TestManagerRunCommitsAndRollsBack(t *testing.T) {
 	var log []string
 	pool := &fakePool{tx: &fakeInnerTx{log: &log}}
 	m := New(pool)
-	if err := m.Run(context.Background(), func(Tx) error { return nil }); err != nil {
+	if err := m.Run(t.Context(), func(Tx) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	boom := errors.New("boom")
-	if err := m.Run(context.Background(), func(Tx) error { return boom }); !errors.Is(err, boom) {
+	if err := m.Run(t.Context(), func(Tx) error { return boom }); !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
 	}
 	want := []string{"commit", "rollback"}
@@ -147,11 +147,11 @@ func TestSubCommitsAndRollsBack(t *testing.T) {
 	var log []string
 	sub := &fakeInnerTx{log: &log}
 	tx := Tx{&fakeInnerTx{log: &log, sub: sub}}
-	if err := tx.Sub(context.Background(), func(Tx) error { return nil }); err != nil {
+	if err := tx.Sub(t.Context(), func(Tx) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	boom := errors.New("boom")
-	if err := tx.Sub(context.Background(), func(Tx) error { return boom }); !errors.Is(err, boom) {
+	if err := tx.Sub(t.Context(), func(Tx) error { return boom }); !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
 	}
 }

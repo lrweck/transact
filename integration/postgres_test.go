@@ -3,7 +3,6 @@
 package integration
 
 import (
-	"context"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -22,7 +21,7 @@ func isSerialization(err error, _ int) bool {
 
 func TestPostgresRunCommits(t *testing.T) {
 	cleanPG(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	m := transactpgx.New(pgPool)
 	err := m.Run(ctx, func(tx transactpgx.Tx) error {
 		_, err := tx.Exec(ctx, "INSERT INTO kv (k, v) VALUES ('a', 1)")
@@ -42,7 +41,7 @@ func TestPostgresRunCommits(t *testing.T) {
 
 func TestPostgresSubRollbackKeepsOuter(t *testing.T) {
 	cleanPG(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	m := transactpgx.New(pgPool)
 	err := m.Run(ctx, func(tx transactpgx.Tx) error {
 		if _, err := tx.Exec(ctx, "INSERT INTO kv (k, v) VALUES ('a', 1)"); err != nil {
@@ -72,7 +71,7 @@ func TestPostgresSubRollbackKeepsOuter(t *testing.T) {
 
 func TestPostgresRetryOnSerializationFailure(t *testing.T) {
 	cleanPG(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	if _, err := pgPool.Exec(ctx, "INSERT INTO acct (id, bal) VALUES (1, 100)"); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +133,7 @@ func TestPostgresRetryOnSerializationFailure(t *testing.T) {
 
 func TestPostgresRetrySubComposition(t *testing.T) {
 	cleanPG(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	m := transactpgx.New(pgPool)
 	boom := errors.New("boom")
 	try := 0

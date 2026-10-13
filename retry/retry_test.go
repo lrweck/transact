@@ -31,7 +31,7 @@ func TestNewRunsThroughCoreRun(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
 	left := 2
-	err := transact.Run(context.Background(), b, func(fakeTx) error {
+	err := transact.Run(t.Context(), b, func(fakeTx) error {
 		if left > 0 {
 			left--
 			return boom
@@ -49,7 +49,7 @@ func TestNewRunsThroughCoreRun(t *testing.T) {
 func TestNewGivesUpWrappingLastError(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
-	err := transact.Run(context.Background(), b, func(fakeTx) error { return boom },
+	err := transact.Run(t.Context(), b, func(fakeTx) error { return boom },
 		New(WithMaxAttempts(2)))
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want wrapped boom", err)
@@ -59,7 +59,7 @@ func TestNewGivesUpWrappingLastError(t *testing.T) {
 func TestNewStopsWhenRetryIfSaysNo(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
-	err := transact.Run(context.Background(), b, func(fakeTx) error { return boom },
+	err := transact.Run(t.Context(), b, func(fakeTx) error { return boom },
 		New(WithMaxAttempts(5), WithRetryIf(func(error, int) bool { return false })))
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
@@ -72,7 +72,7 @@ func TestNewStopsWhenRetryIfSaysNo(t *testing.T) {
 func TestNewLastMatcherWins(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
-	err := transact.Run(context.Background(), b, func(fakeTx) error { return boom },
+	err := transact.Run(t.Context(), b, func(fakeTx) error { return boom },
 		New(WithMaxAttempts(3),
 			WithRetryIf(func(error, int) bool { return true }),
 			WithRetryIf(func(error, int) bool { return false })))
@@ -89,7 +89,7 @@ func TestNewMatcherSeesTryNumber(t *testing.T) {
 	boom := errors.New("boom")
 	left := 1
 	var seen []int
-	err := transact.Run(context.Background(), b, func(fakeTx) error {
+	err := transact.Run(t.Context(), b, func(fakeTx) error {
 		if left > 0 {
 			left--
 			return boom
@@ -110,7 +110,7 @@ func TestNewMatcherSeesTryNumber(t *testing.T) {
 func TestNewNilMatcherRetriesAll(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
-	err := transact.Run(context.Background(), b, func(fakeTx) error { return boom },
+	err := transact.Run(t.Context(), b, func(fakeTx) error { return boom },
 		New(WithMaxAttempts(2), WithRetryIf(nil)))
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
@@ -123,7 +123,7 @@ func TestNewNilMatcherRetriesAll(t *testing.T) {
 func TestNewDefaultsToOneTry(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
-	err := transact.Run(context.Background(), b, func(fakeTx) error { return boom }, New())
+	err := transact.Run(t.Context(), b, func(fakeTx) error { return boom }, New())
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
 	}
@@ -134,7 +134,7 @@ func TestNewDefaultsToOneTry(t *testing.T) {
 
 func TestNewSetsPerTryAndTotalDeadlines(t *testing.T) {
 	b := &fakeBeginner{}
-	err := transact.Run(context.Background(), b, func(fakeTx) error { return nil },
+	err := transact.Run(t.Context(), b, func(fakeTx) error { return nil },
 		New(WithMaxAttempts(1), WithPerTryTimeout(time.Second)))
 	if err != nil {
 		t.Fatal(err)
@@ -143,7 +143,7 @@ func TestNewSetsPerTryAndTotalDeadlines(t *testing.T) {
 		t.Fatal("begin got no deadline with PerTryTimeout")
 	}
 	b = &fakeBeginner{}
-	err = transact.Run(context.Background(), b, func(fakeTx) error { return nil },
+	err = transact.Run(t.Context(), b, func(fakeTx) error { return nil },
 		New(WithMaxAttempts(1), WithTotalTimeout(time.Second)))
 	if err != nil {
 		t.Fatal(err)
@@ -220,7 +220,7 @@ func TestComposeWaitClamps(t *testing.T) {
 func TestNewWithJitterEndToEnd(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
-	err := transact.Run(context.Background(), b, func(fakeTx) error { return boom },
+	err := transact.Run(t.Context(), b, func(fakeTx) error { return boom },
 		New(WithMaxAttempts(2),
 			WithBackoff(ConstantBackoff(time.Millisecond)),
 			WithJitter(5*time.Millisecond, 15*time.Millisecond)))
@@ -237,7 +237,7 @@ func TestNewSleepsBetweenTries(t *testing.T) {
 		b := &fakeBeginner{}
 		boom := errors.New("boom")
 		start := time.Now()
-		err := transact.Run(context.Background(), b, func(fakeTx) error { return boom },
+		err := transact.Run(t.Context(), b, func(fakeTx) error { return boom },
 			New(WithMaxAttempts(2), WithBackoff(ConstantBackoff(20*time.Millisecond))))
 		if !errors.Is(err, boom) {
 			t.Fatalf("err = %v, want boom", err)
@@ -254,7 +254,7 @@ func TestNewSleepsBetweenTries(t *testing.T) {
 func TestNewSleepInterruptedByCancel(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		b := &fakeBeginner{}
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 		boom := errors.New("boom")
 		start := time.Now()
 		err := transact.Run(ctx, b, func(fakeTx) error {

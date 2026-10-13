@@ -95,7 +95,7 @@ func execSchema(ctx context.Context) {
 
 func cleanPG(t *testing.T) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	if _, err := pgPool.Exec(ctx, "DELETE FROM kv"); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func cleanPG(t *testing.T) {
 
 func cleanMy(t *testing.T) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	if _, err := myDB.ExecContext(ctx, "DELETE FROM kv"); err != nil {
 		t.Fatal(err)
 	}

@@ -53,7 +53,7 @@ func countBegins(log []string) int {
 
 func TestRunCommitsOnSuccess(t *testing.T) {
 	b := &fakeBeginner{}
-	err := Run(context.Background(), b, func(fakeTx) error { return nil })
+	err := Run(t.Context(), b, func(fakeTx) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestRunCommitsOnSuccess(t *testing.T) {
 func TestRunRollsBackOnError(t *testing.T) {
 	b := &fakeBeginner{}
 	want := errors.New("boom")
-	err := Run(context.Background(), b, func(fakeTx) error { return want })
+	err := Run(t.Context(), b, func(fakeTx) error { return want })
 	if !errors.Is(err, want) {
 		t.Fatalf("err = %v, want %v", err, want)
 	}
@@ -84,7 +84,7 @@ func TestRunRollsBackOnPanicAndRepanics(t *testing.T) {
 			t.Fatalf("log = %v, want %v", b.log, exp)
 		}
 	}()
-	_ = Run(context.Background(), b, func(fakeTx) error { panic("kaboom") })
+	_ = Run(t.Context(), b, func(fakeTx) error { panic("kaboom") })
 	t.Fatal("expected panic")
 }
 
@@ -100,8 +100,8 @@ func (s spTx) Begin(context.Context, Options) (spTx, error) {
 func TestRunNestsOnTx(t *testing.T) {
 	var log []string
 	root := spTx{&log}
-	err := Run(context.Background(), beginFn(func() (spTx, error) { log = append(log, "begin"); return root, nil }), func(tx spTx) error {
-		return Run(context.Background(), tx, func(spTx) error { return nil })
+	err := Run(t.Context(), beginFn(func() (spTx, error) { log = append(log, "begin"); return root, nil }), func(tx spTx) error {
+		return Run(t.Context(), tx, func(spTx) error { return nil })
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func (f beginFn) Begin(context.Context, Options) (spTx, error) { return f() }
 func TestRunReturnsBeginErrorWithoutCallingFn(t *testing.T) {
 	b := &fakeBeginner{beginErr: errors.New("no conn")}
 	called := false
-	err := Run(context.Background(), b, func(fakeTx) error { called = true; return nil })
+	err := Run(t.Context(), b, func(fakeTx) error { called = true; return nil })
 	if err == nil || err.Error() != "no conn" {
 		t.Fatalf("err = %v, want no conn", err)
 	}
@@ -134,7 +134,7 @@ func TestRunReturnsCommitError(t *testing.T) {
 	b := &fakeBeginner{}
 	want := errors.New("commit failed")
 	b.beginTx = fakeTx{log: &b.log, commitErr: want}
-	err := Run(context.Background(), b, func(fakeTx) error { return nil })
+	err := Run(t.Context(), b, func(fakeTx) error { return nil })
 	if !errors.Is(err, want) {
 		t.Fatalf("err = %v, want %v", err, want)
 	}
@@ -143,7 +143,7 @@ func TestRunReturnsCommitError(t *testing.T) {
 func TestManagerAppliesDefaultsThenCallOptions(t *testing.T) {
 	b := &fakeBeginner{}
 	m := New[fakeTx](b, WithIsoLevel(LevelSerializable))
-	_ = m.Run(context.Background(), func(fakeTx) error { return nil }, WithReadOnly())
+	_ = m.Run(t.Context(), func(fakeTx) error { return nil }, WithReadOnly())
 	if b.opts.IsoLevel() != LevelSerializable || !b.opts.ReadOnly() {
 		t.Fatalf("opts = %+v, want serializable + read-only", b.opts)
 	}
@@ -153,7 +153,7 @@ func TestManagerIsABeginner(t *testing.T) {
 	var _ Beginner[fakeTx] = New[fakeTx](&fakeBeginner{})
 	b := &fakeBeginner{}
 	m := New[fakeTx](b)
-	if err := Run(context.Background(), m, func(fakeTx) error { return nil }); err != nil {
+	if err := Run(t.Context(), m, func(fakeTx) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"begin", "commit"}; !slices.Equal(b.log, want) {
@@ -164,13 +164,13 @@ func TestManagerIsABeginner(t *testing.T) {
 func TestManagerBeginMergesDefaults(t *testing.T) {
 	b := &fakeBeginner{}
 	m := New[fakeTx](b, WithIsoLevel(LevelSerializable), WithReadOnly(), WithDeferrable(Deferred))
-	if _, err := m.Begin(context.Background(), Options{}); err != nil {
+	if _, err := m.Begin(t.Context(), Options{}); err != nil {
 		t.Fatal(err)
 	}
 	if b.opts.IsoLevel() != LevelSerializable || !b.opts.ReadOnly() || b.opts.Deferrable() != Deferred {
 		t.Fatalf("opts = %+v, want defaults", b.opts)
 	}
-	if _, err := m.Begin(context.Background(), JoinOptions(WithIsoLevel(LevelReadCommitted), WithDeferrable(NotDeferrable))); err != nil {
+	if _, err := m.Begin(t.Context(), JoinOptions(WithIsoLevel(LevelReadCommitted), WithDeferrable(NotDeferrable))); err != nil {
 		t.Fatal(err)
 	}
 	if b.opts.IsoLevel() != LevelReadCommitted || !b.opts.ReadOnly() || b.opts.Deferrable() != NotDeferrable {
@@ -183,13 +183,13 @@ func TestManagerBeginMergesRetry(t *testing.T) {
 	ra := RetryPolicy{MaxAttempts: 2}
 	rb := RetryPolicy{MaxAttempts: 5}
 	m := New[fakeTx](b, WithRetry(ra))
-	if _, err := m.Begin(context.Background(), Options{}); err != nil {
+	if _, err := m.Begin(t.Context(), Options{}); err != nil {
 		t.Fatal(err)
 	}
 	if p, ok := b.opts.Retry(); !ok || p.MaxAttempts != 2 {
 		t.Fatalf("opts retry = %+v, %v, want ra", p, ok)
 	}
-	if _, err := m.Begin(context.Background(), WithRetry(rb)); err != nil {
+	if _, err := m.Begin(t.Context(), WithRetry(rb)); err != nil {
 		t.Fatal(err)
 	}
 	if p, _ := b.opts.Retry(); p.MaxAttempts != 5 {
@@ -201,7 +201,7 @@ func TestRunRetrySucceedsAfterFailures(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
 	left := 2
-	err := Run(context.Background(), b, func(fakeTx) error {
+	err := Run(t.Context(), b, func(fakeTx) error {
 		if left > 0 {
 			left--
 			return boom
@@ -219,7 +219,7 @@ func TestRunRetrySucceedsAfterFailures(t *testing.T) {
 func TestRunRetryGivesUpWrappingLastError(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
-	err := Run(context.Background(), b, func(fakeTx) error { return boom },
+	err := Run(t.Context(), b, func(fakeTx) error { return boom },
 		WithRetry(RetryPolicy{MaxAttempts: 2}))
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want wrapped boom", err)
@@ -232,7 +232,7 @@ func TestRunRetryGivesUpWrappingLastError(t *testing.T) {
 func TestRunRetryStopsWhenRetryIfSaysNo(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
-	err := Run(context.Background(), b, func(fakeTx) error { return boom },
+	err := Run(t.Context(), b, func(fakeTx) error { return boom },
 		WithRetry(RetryPolicy{MaxAttempts: 5, RetryIf: func(error, int) bool { return false }}))
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
@@ -245,7 +245,7 @@ func TestRunRetryStopsWhenRetryIfSaysNo(t *testing.T) {
 func TestRunRetryZeroPolicyMeansOneTry(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
-	err := Run(context.Background(), b, func(fakeTx) error { return boom }, WithRetry(RetryPolicy{}))
+	err := Run(t.Context(), b, func(fakeTx) error { return boom }, WithRetry(RetryPolicy{}))
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
 	}
@@ -259,7 +259,7 @@ func TestRunRetryIfSeesTryNumber(t *testing.T) {
 	boom := errors.New("boom")
 	left := 2
 	var seen []int
-	err := Run(context.Background(), b, func(fakeTx) error {
+	err := Run(t.Context(), b, func(fakeTx) error {
 		if left > 0 {
 			left--
 			return boom
@@ -279,7 +279,7 @@ func TestRunRetryIfSeesTryNumber(t *testing.T) {
 
 func TestRunRetrySetsPerTryAndTotalDeadlines(t *testing.T) {
 	b := &fakeBeginner{}
-	err := Run(context.Background(), b, func(fakeTx) error { return nil },
+	err := Run(t.Context(), b, func(fakeTx) error { return nil },
 		WithRetry(RetryPolicy{MaxAttempts: 1, PerTryTimeout: time.Second}))
 	if err != nil {
 		t.Fatal(err)
@@ -288,7 +288,7 @@ func TestRunRetrySetsPerTryAndTotalDeadlines(t *testing.T) {
 		t.Fatal("begin got no deadline with PerTryTimeout")
 	}
 	b = &fakeBeginner{}
-	err = Run(context.Background(), b, func(fakeTx) error { return nil },
+	err = Run(t.Context(), b, func(fakeTx) error { return nil },
 		WithRetry(RetryPolicy{MaxAttempts: 1, TotalTimeout: time.Second}))
 	if err != nil {
 		t.Fatal(err)
@@ -309,7 +309,7 @@ func (b *blockingBeginner) Begin(ctx context.Context, _ Options) (fakeTx, error)
 func TestRunRetryPerTryTimeoutFires(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		b := &blockingBeginner{}
-		err := Run(context.Background(), b, func(fakeTx) error { return nil },
+		err := Run(t.Context(), b, func(fakeTx) error { return nil },
 			WithRetry(RetryPolicy{MaxAttempts: 2, PerTryTimeout: 10 * time.Millisecond}))
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("err = %v, want context.DeadlineExceeded", err)
@@ -324,7 +324,7 @@ func TestRunRetryNegativeWaitMeansNoWait(t *testing.T) {
 	b := &fakeBeginner{}
 	boom := errors.New("boom")
 	start := time.Now()
-	err := Run(context.Background(), b, func(fakeTx) error { return boom },
+	err := Run(t.Context(), b, func(fakeTx) error { return boom },
 		WithRetry(RetryPolicy{MaxAttempts: 2, Wait: func(int) time.Duration { return -time.Second }}))
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
@@ -339,7 +339,7 @@ func TestRunRetrySleepsBetweenTries(t *testing.T) {
 		b := &fakeBeginner{}
 		boom := errors.New("boom")
 		start := time.Now()
-		err := Run(context.Background(), b, func(fakeTx) error { return boom },
+		err := Run(t.Context(), b, func(fakeTx) error { return boom },
 			WithRetry(RetryPolicy{MaxAttempts: 2, Wait: func(int) time.Duration { return 20 * time.Millisecond }}))
 		if !errors.Is(err, boom) {
 			t.Fatalf("err = %v, want boom", err)
@@ -352,7 +352,7 @@ func TestRunRetrySleepsBetweenTries(t *testing.T) {
 
 func TestRunRetryStopsWhenContextDiesBetweenTries(t *testing.T) {
 	b := &fakeBeginner{}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	boom := errors.New("boom")
 	first := true
 	err := Run(ctx, b, func(fakeTx) error {
@@ -372,7 +372,7 @@ func TestRunRetryStopsWhenContextDiesBetweenTries(t *testing.T) {
 
 func TestRunRetryCanceledContextSkipsFn(t *testing.T) {
 	b := &fakeBeginner{}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	called := false
 	err := Run(ctx, b, func(fakeTx) error { called = true; return nil },
@@ -388,7 +388,7 @@ func TestRunRetryCanceledContextSkipsFn(t *testing.T) {
 func TestRunRetrySleepInterruptedByCancel(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		b := &fakeBeginner{}
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 		boom := errors.New("boom")
 		start := time.Now()
 		err := Run(ctx, b, func(fakeTx) error {
