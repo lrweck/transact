@@ -13,45 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  format:
+  ci:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-      - name: gofmt
-        run: |
-          unformatted="$(gofmt -l .)"
-          if [ -n "$unformatted" ]; then
-            echo "not gofmt-ed:"
-            echo "$unformatted"
-            exit 1
-          fi
-
-  vet:
-    runs-on: ubuntu-latest
-    env:
-      GOWORK: "off"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: "**/go.sum"
-      - name: vet every module
-        run: |
-          for m in . pgx stdlib sqlite retry; do
-            go -C "$m" vet ./...
-          done
-          go -C integration vet -tags integration ./...
-
-  unit:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        module: [".", pgx, stdlib, sqlite, retry]
     env:
       # Each module is checked on its own, the way a user installs it.
       GOWORK: "off"
@@ -61,18 +24,24 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: "**/go.sum"
-      - name: test
-        run: go -C "${{ matrix.module }}" test -race -count=1 -cover ./...
-
-  integration:
-    runs-on: ubuntu-latest
-    env:
-      GOWORK: "off"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: "**/go.sum"
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt-ed:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: vet every module
+        run: |
+          for m in . pgx stdlib sqlite retry; do
+            go -C "$m" vet ./...
+          done
+          go -C integration vet -tags integration ./...
+      - name: test every module
+        run: |
+          for m in . pgx stdlib sqlite retry; do
+            go -C "$m" test -race -count=1 -cover ./...
+          done
       - name: test against real databases
         run: go -C integration test -tags integration -count=1 -timeout 15m ./...
