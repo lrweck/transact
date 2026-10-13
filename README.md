@@ -17,6 +17,8 @@ Install only the one you use.
 
 ## Usage
 
+### PostgreSQL with pgx
+
 ```go
 type Repo struct {
     *transactpgx.Manager
@@ -46,9 +48,54 @@ func (r *Repo) Transfer(ctx context.Context, from, to int64, v int) error {
 }
 ```
 
+### MySQL (or Postgres) with database/sql
+
+```go
+import (
+    _ "github.com/go-sql-driver/mysql" // or pgx/stdlib, modernc.org/sqlite
+    transactstdlib "github.com/lrweck/transact/stdlib"
+)
+
+type Repo struct {
+    *transactstdlib.Manager
+    q *gen.Queries
+}
+
+func NewRepo(db *sql.DB) *Repo {
+    return &Repo{
+        Manager: transactstdlib.New(db),
+        q:       gen.New(db),
+    }
+}
+
+func (r *Repo) Transfer(ctx context.Context, from, to string, amount int) error {
+    ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+    defer cancel()
+
+    return r.Run(ctx, func(tx transactstdlib.Tx) error {
+        q := gen.New(tx) // *sql.Tx satisfies sqlc and all query methods
+        if err := debit(ctx, q, from, amount); err != nil {
+            return err
+        }
+        return tx.Sub(ctx, func(sub transactstdlib.Tx) error {
+            return credit(ctx, gen.New(sub), to, amount)
+        })
+    })
+}
+```
+
 `Run` begins a transaction, calls the callback, then commits. It rolls back if the callback returns an error or panics.
 
-Options set on `New` are defaults. Options passed to `Run` override them.
+Options are values. Options set on `New` are defaults; options passed to `Run` override them for that call. `JoinOptions` merges sets by hand — properties set later win, so an explicit default overrides an earlier value:
+
+```go
+opts := transact.JoinOptions(
+    transact.WithIsoLevel(transact.LevelSerializable),
+    transact.WithReadOnly(),
+)
+```
+
+`Manager` is itself a `Beginner`, so you can pass it anywhere a `Beginner` works, like `transact.Run` or another `Manager`.
 
 ## Subtransactions
 
@@ -73,7 +120,7 @@ m := transactpgx.New(pool,
         transactretry.WithMaxAttempts(5),
         transactretry.WithPerTryTimeout(2*time.Second),  // bounds each try's begin and commit
         transactretry.WithTotalTimeout(30*time.Second),  // all tries together
-        transactretry.WithRetryIf(func(err error) bool { return isSerializationError(err) }),
+        transactretry.WithRetryIf(func(err error, try int) bool { return isSerializationError(err) }),
         transactretry.WithBackoff(transactretry.ExponentialBackoff(100*time.Millisecond)),
         transactretry.WithJitter(100*time.Millisecond, 2*time.Second),
     ),
