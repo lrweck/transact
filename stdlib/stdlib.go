@@ -73,7 +73,7 @@ type Manager = transact.Manager[Tx]
 
 // New returns a Manager for db. The options are defaults for every Run.
 func New(db DB, opts ...transact.Options) *Manager {
-	return transact.New[Tx](beginner{db}, opts...)
+	return transact.New(beginner{db}, opts...)
 }
 
 type beginner struct{ db DB }

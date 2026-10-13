@@ -48,6 +48,9 @@ func TestSubRollbackKeepsOuterWork(t *testing.T) {
 		}
 		got = append(got, v)
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 1 || got[0] != 1 {
 		t.Fatalf("rows = %v, want [1]", got)
 	}

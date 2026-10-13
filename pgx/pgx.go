@@ -41,7 +41,7 @@ type Manager = transact.Manager[Tx]
 
 // New returns a Manager for pool. The options are defaults for every Run.
 func New(pool Pool, opts ...transact.Options) *Manager {
-	return transact.New[Tx](beginner{pool}, opts...)
+	return transact.New(beginner{pool}, opts...)
 }
 
 type beginner struct{ pool Pool }
