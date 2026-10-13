@@ -29,6 +29,23 @@ jobs:
             exit 1
           fi
 
+  vet:
+    runs-on: ubuntu-latest
+    env:
+      GOWORK: "off"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: "**/go.sum"
+      - name: vet every module
+        run: |
+          for m in . pgx stdlib sqlite retry; do
+            go -C "$m" vet ./...
+          done
+          go -C integration vet -tags integration ./...
+
   unit:
     runs-on: ubuntu-latest
     strategy:
@@ -44,8 +61,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: "**/go.sum"
-      - name: vet
-        run: go -C "${{ matrix.module }}" vet ./...
       - name: test
         run: go -C "${{ matrix.module }}" test -race -count=1 -cover ./...
 
@@ -59,7 +74,5 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: "**/go.sum"
-      - name: vet (integration tag)
-        run: go -C integration vet -tags integration ./...
       - name: test against real databases
         run: go -C integration test -tags integration -count=1 -timeout 15m ./...
