@@ -17,6 +17,7 @@ Needs Docker. Postgres and MySQL run in containers (images `postgres:16-alpine` 
 | Sub rollback keeps outer work | yes | yes | yes |
 | Retry on transient error | 40001 serialization failure | 1213 deadlock | BUSY on locked DB |
 | Retry + Sub composition | yes | — | — |
+| `transacttest` conformance | yes | yes | yes (in `sqlite/`, runs without Docker) |
 
 ## Retry vs subtransactions
 

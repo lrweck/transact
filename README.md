@@ -99,7 +99,9 @@ opts := transact.JoinOptions(
 
 ## Subtransactions
 
-`tx.Sub` runs a callback inside a savepoint. If the callback fails, only its work is rolled back and the outer transaction continues. Supported on PostgreSQL, MySQL (InnoDB), and SQLite. `Sub` ignores isolation and read-only options, since those can't change inside a savepoint.
+`tx.Sub` runs a callback inside a savepoint. If the callback fails, only its work is rolled back and the outer transaction continues. Supported on PostgreSQL, MySQL (InnoDB), and SQLite.
+
+A savepoint can't change isolation, read-only, or deferrable mode. Passing any of them to `Sub` returns `transact.ErrSavepointOptions` before anything runs.
 
 ## SQLite
 
@@ -135,3 +137,20 @@ m.Run(ctx, func(tx transactpgx.Tx) error { ... }) // retries on failure
 ## Writing an adapter
 
 An adapter implements `transact.Beginner[T]` for your pool, where `T` has `Commit(ctx)` and `Rollback(ctx)`. For nesting, `T` must also implement `Begin(ctx, transact.Options) (T, error)`. See `pgx/pgx.go` for the smallest example.
+
+Check your adapter with `transacttest.Conformance`. It runs the contract every adapter must meet: commit, rollback on error and on panic, savepoints keeping or dropping their work, and savepoints rejecting options. You give it a `Store` with four small functions (reset, insert, count) against a table with one integer column:
+
+```go
+transacttest.Conformance(t, transacttest.Store[transactstdlib.Tx]{
+    Beginner: transactstdlib.New(db),
+    Reset:    func(ctx context.Context) error { _, err := db.ExecContext(ctx, "DELETE FROM conf"); return err },
+    Insert:   func(ctx context.Context, tx transactstdlib.Tx, id int) error { _, err := tx.ExecContext(ctx, "INSERT INTO conf (id) VALUES (?)", id); return err },
+    Count:    func(ctx context.Context, tx transactstdlib.Tx) (int, error) { var n int; err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM conf").Scan(&n); return n, err },
+})
+```
+
+The suite runs against a real database, so put it in your adapter's integration tests.
+
+## Design notes
+
+The retry loop lives in the core `Run`, not in the `retry` module. A `Beginner` wraps one `Begin` call, and retry has to wrap the whole `Run` (begin, callback, commit, rollback). So the core owns the loop, and `retry` only builds the policy that `Run` reads. The `retry` module stays a small constructor with no database dependencies.
